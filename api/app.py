@@ -7,6 +7,7 @@ import os
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from pymongo import UpdateOne
 
 from db import ensure_indexes, get_db
 
@@ -36,9 +37,10 @@ def ingest():
 
     for table_name in ("cycles", "state_events"):
         rows = body.get(table_name) or []
-        for row in rows:
-            db[table_name].update_one(
-                {"source_id": row["source_id"]}, {"$set": row}, upsert=True
+        if rows:
+            db[table_name].bulk_write(
+                [UpdateOne({"source_id": row["source_id"]}, {"$set": row}, upsert=True) for row in rows],
+                ordered=False,
             )
         counts[table_name] = len(rows)
 

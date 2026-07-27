@@ -18,7 +18,9 @@ CHECKPOINT_DB_PATH = os.path.join(_PROJECT_ROOT, "db", "publisher_state.db")
 
 SYNC_INTERVAL_S = 10
 BATCH_LIMIT = 500
-REQUEST_TIMEOUT_S = 15
+# Generous margin for Render free-tier cold starts (a spun-down instance
+# can take 30-50s to wake on the first request), on top of /ingest itself.
+REQUEST_TIMEOUT_S = 60
 
 
 def _load_secret_file(path: str) -> dict:
