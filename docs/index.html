@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Granco Saw Monitor</h1>
+    <span id="last-updated">-</span>
+  </header>
+
+  <section id="status-card" class="card">
+    <div class="status-row">
+      <span id="state-badge" class="badge">UNKNOWN</span>
+      <div class="status-details">
+        <div><strong>Part:</strong> <span id="part-number">-</span></div>
+        <div><strong>Last cut:</strong> <span id="last-cycle-ts">-</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recent cycles</h2>
+    <table id="cycles-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Part</th>
+          <th>Duration (s)</th>
+          <th>Theoretical (s)</th>
+          <th>Trim/Reload</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
