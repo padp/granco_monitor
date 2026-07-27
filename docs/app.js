@@ -1,5 +1,5 @@
 // Fill this in after deploying api/ to Render.
-const API_BASE = "https://YOUR-API.onrender.com";
+const API_BASE = "https://granco-monitor.onrender.com/";
 
 const POLL_INTERVAL_MS = 5000;
 
