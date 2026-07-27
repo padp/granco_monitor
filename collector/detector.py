@@ -200,8 +200,7 @@ class Detector:
         if next_position is None or not cut_length_mm:
             return
         cut_length_in = cut_length_mm / config.MM_PER_INCH
-        expected_next = position - cut_length_in
-        if abs(next_position - expected_next) > config.BACKGAUGE_NEXT_POS_TOLERANCE:
+        if cut_length_in > next_position:
             self._next_move_will_reload = True
 
     def _handle_hold_end(self, ts, snapshot):
