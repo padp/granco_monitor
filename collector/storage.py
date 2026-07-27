@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS cycles (
     theoretical_duration_s REAL,
     is_trim_cut INTEGER NOT NULL DEFAULT 0,
     batch_reload INTEGER NOT NULL DEFAULT 0,
+    cut_number INTEGER,
     actual_qty_counter INTEGER,
     blade_engaged_confirmed INTEGER NOT NULL DEFAULT 0,
     blade_current_peak REAL,
@@ -85,6 +86,9 @@ class Storage:
         existing = {row[1] for row in self._conn.execute("PRAGMA table_info(cycles)")}
         if "blade_current_peak" not in existing:
             self._conn.execute("ALTER TABLE cycles ADD COLUMN blade_current_peak REAL")
+            self._conn.commit()
+        if "cut_number" not in existing:
+            self._conn.execute("ALTER TABLE cycles ADD COLUMN cut_number INTEGER")
             self._conn.commit()
 
         existing = {row[1] for row in self._conn.execute("PRAGMA table_info(raw_buffer)")}

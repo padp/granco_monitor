@@ -22,20 +22,25 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card card-wide">
     <h2>Recent cycles</h2>
-    <table id="cycles-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Part</th>
-          <th>Duration (s)</th>
-          <th>Theoretical (s)</th>
-          <th>Trim/Reload</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="overflow-wrap">
+      <table id="cycles-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Part</th>
+            <th>Cut #</th>
+            <th>Duration (s)</th>
+            <th>Theoretical (s)</th>
+            <th>Cut Length (in)</th>
+            <th>Parts</th>
+            <th>Trim Cut</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 
   <script src="app.js"></script>

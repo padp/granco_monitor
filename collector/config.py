@@ -15,8 +15,6 @@ STATE_TAGS = [
     "AUTO_MODE",
     "BLADE_CURRENT",
     "SAWBLADE.ActualPosition",
-    "SAWBLADE_RET_SPEED",
-    "BACKGAUGE_COMMAND_VELOCITY",
     "BACKGAUGE_ACTUAL_POS",
     "BACKGAUGE_HOME_POS",
     "NEXT_BACKGAUGE_POS",
@@ -62,8 +60,6 @@ TAG_ALIASES = {
     "AUTO_MODE": "auto_mode",
     "BLADE_CURRENT": "blade_current",
     "SAWBLADE.ActualPosition": "blade_position",
-    "SAWBLADE_RET_SPEED": "blade_return_speed",
-    "BACKGAUGE_COMMAND_VELOCITY": "backgauge_command_velocity",
     "BACKGAUGE_ACTUAL_POS": "backgauge_position",
     "BACKGAUGE_HOME_POS": "backgauge_home_position",
     "NEXT_BACKGAUGE_POS": "next_backgauge_position",
@@ -97,9 +93,14 @@ BACKGAUGE_MOVE_EPSILON = 0.3
 # mid-stroke (real strokes observed reaching 18-32).
 BLADE_ENGAGED_POSITION_THRESHOLD = 5.0
 
-# How close to BACKGAUGE_HOME_POS counts as "returned home" - used to flag
-# the following cycle as a post-reload/trim cut.
-BACKGAUGE_HOME_TOLERANCE = 1.0
+# How far next_backgauge_position can be from (current_position -
+# cut_length) and still count as "the upcoming move is a normal per-cut
+# advance" - used to flag a reload/trim cut when it DOESN'T match
+# (replaces an earlier, fragile approach that tried to catch a moving
+# sample within BACKGAUGE_HOME_TOLERANCE of BACKGAUGE_HOME_POS - that
+# depended on unlucky poll timing and an unconfirmed home-position tag
+# value, and in practice never fired).
+BACKGAUGE_NEXT_POS_TOLERANCE = 2.0
 
 # Amps above which the blade might be actively engaged in material.
 # NOT CONFIRMED - live data hints at a ~17A baseline vs. ~20A during
@@ -107,26 +108,36 @@ BACKGAUGE_HOME_TOLERANCE = 1.0
 # blade_current_peak can be logged per cycle for future tuning.
 BLADE_CUTTING_CURRENT_THRESHOLD = 18.0
 
-# User-estimated blade return speed (in/min), used whenever the live
-# SAWBLADE_RET_SPEED tag reads as None/0 - "close enough" per the user,
-# not a measured value.
-BLADE_RETURN_SPEED_FALLBACK = 600.0
+# User-estimated blade return speed (in/min) - "close enough" per the
+# user, not a measured value. A live tag (SAWBLADE_RET_SPEED) existed but
+# wasn't usable: it was sampled from a single arbitrary poll rather than
+# tracked as a peak during the actual return stroke, giving garbage
+# values. Just a fixed constant for now rather than reading it live.
+BLADE_RETURN_SPEED = 600.0
 
-# Fallback backgauge advance speed (in/min), used only if
-# BACKGAUGE_COMMAND_VELOCITY wasn't captured during a given move (missed
-# by poll timing, reads 0/None, etc). No estimate confirmed yet - the
-# live tag is polled and its observed value during each move is preferred;
-# this is just a safety net so theoretical_duration_s doesn't silently
-# drop the backgauge-advance term entirely while that's being confirmed.
-BACKGAUGE_MOVE_SPEED_FALLBACK = None
+# User-estimated backgauge advance speed (mm/sec) - like BLADE_RETURN_SPEED,
+# a fixed constant rather than a measured value. Measuring this from
+# position deltas was unreliable: a single continuous "moving" segment
+# can span physically different phases (e.g. the unpredictable approach-
+# to-light-curtain + trim on the first cut of a batch, or reversing
+# direction after the last cut with no clean hold in between), and the
+# live BACKGAUGE_COMMAND_VELOCITY tag was never validated. cut_length is
+# in mm, so this stays in mm/sec rather than converting to inches.
+BACKGAUGE_ADVANCE_SPEED_MM_PER_S = 150.0
 
 # Known dead-cycle constant described by the user: time for the backgauge
 # to return home after finishing a batch (a per-BATCH event, distinct
-# from the blade's own per-CUT in/out stroke - see SAWBLADE_RET_SPEED
-# above, which already covers the blade side via a live tag). NOT YET
-# MEASURED. Leave as None until known - theoretical_duration_s will
-# simply omit this term.
+# from the blade's own per-CUT in/out stroke, which BLADE_RETURN_SPEED
+# above already covers). NOT YET MEASURED. Leave as None until known -
+# theoretical_duration_s will simply omit this term.
 BACKGAUGE_RETURN_TIME_S = None
+
+# CURRENT_RECIPE.PCL (cut length) is in mm; CURRENT_RECIPE.ATD (auto trim
+# distance) is already in inches (confirmed: a recipe with ATD=0.75
+# matches the user's real "0.75 inches" trim example) - both get
+# normalized to inches for storage so cut_length is a consistent unit
+# whether the row is a normal cut or a trim cut.
+MM_PER_INCH = 25.4
 
 # --- Connection / reliability ---
 MAX_CONSECUTIVE_ERRORS = 10

@@ -8,6 +8,7 @@
   --running: #16a34a;
   --idle: #d97706;
   --unknown: #6b7280;
+  --stalled: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,6 +52,8 @@ h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--muted); }
   max-width: 720px;
 }
 
+.card-wide { max-width: 900px; }
+
 .status-row {
   display: flex;
   align-items: center;
@@ -68,6 +71,7 @@ h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--muted); }
 }
 .badge.running { background: var(--running); }
 .badge.idle { background: var(--idle); }
+.badge.stalled { background: var(--stalled); }
 .badge.unknown { background: var(--unknown); }
 
 .status-details { color: var(--text); font-size: 0.9rem; line-height: 1.5; }
@@ -75,6 +79,7 @@ h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--muted); }
 
 table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
