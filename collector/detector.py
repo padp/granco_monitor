@@ -42,6 +42,13 @@ class Detector:
         self._hold_max_blade_current = None
         self._pending_batch_reload = False
 
+        # Stats for the backgauge's advance move that leads INTO the
+        # current hold - accumulated while moving, stashed when the hold
+        # starts, consumed (and reset) when that hold's cycle is emitted.
+        self._move_max_command_velocity = None
+        self._pending_advance_distance = None
+        self._pending_advance_speed = None
+
         self._recipe_cache = {}
 
     def set_plc_client(self, plc_client):
@@ -84,17 +91,43 @@ class Detector:
             "trim_cut_slow_dist": values.get("TRIM_CUT_SLOW_DIST"),
         }
 
-    def _theoretical_duration_s(self, part_number, blade_feed_rate):
-        details = self._recipe_cache.get(part_number)
-        if not details or not blade_feed_rate:
+    def _theoretical_duration_s(
+        self, blade_feed_rate, blade_return_speed, stroke_distance, is_post_reload,
+        advance_distance, advance_speed,
+    ):
+        """A cycle is backgauge-advance-then-cut, so theoretical time is the
+        sum of both.
+
+        Blade travel distance is the ACTUAL measured stroke
+        (self._hold_max_blade_position, home to max position), not
+        batch_width - the blade is a 28in-diameter disc that starts fully
+        retracted and has to swing well past the material's width to
+        fully clear/bury it on the far side, so the real stroke is
+        meaningfully longer than the material width alone (~40in of
+        travel for a ~24in-wide batch, per the user). Measuring it
+        directly sidesteps having to model that clearance geometry.
+
+        It has to travel back out again afterward at its own (much
+        faster) return speed rather than the cutting feed rate.
+        BACKGAUGE_RETURN_TIME_S is a separate, per-batch dead time (the
+        backgauge returning home after a batch finishes), so it only
+        applies to the cut right after a reload, not every cut.
+        """
+        if not blade_feed_rate or not stroke_distance:
             return None
-        stroke = details.get("batch_height")
-        if not stroke:
-            return None
-        feed_rate_per_s = blade_feed_rate / 60.0
-        cut_time = stroke / feed_rate_per_s
-        if config.BACKGAUGE_RETURN_TIME_S:
+
+        return_speed = blade_return_speed or config.BLADE_RETURN_SPEED_FALLBACK
+        cut_time = stroke_distance / (blade_feed_rate / 60.0)
+        if return_speed:
+            cut_time += stroke_distance / (return_speed / 60.0)
+
+        move_speed = advance_speed or config.BACKGAUGE_MOVE_SPEED_FALLBACK
+        if advance_distance and move_speed:
+            cut_time += advance_distance / (move_speed / 60.0)
+
+        if is_post_reload and config.BACKGAUGE_RETURN_TIME_S:
             cut_time += config.BACKGAUGE_RETURN_TIME_S
+
         return cut_time
 
     def _track_backgauge(self, ts, snapshot):
@@ -111,8 +144,21 @@ class Detector:
             home = snapshot.get("backgauge_home_position")
             if home is not None and abs(position - home) <= config.BACKGAUGE_HOME_TOLERANCE:
                 self._pending_batch_reload = True
+            velocity = snapshot.get("backgauge_command_velocity")
+            if velocity is not None:
+                self._move_max_command_velocity = (
+                    velocity
+                    if self._move_max_command_velocity is None
+                    else max(self._move_max_command_velocity, velocity)
+                )
         else:
             if self._was_moving or self._hold_start_ts is None:
+                if self._was_moving and self._hold_start_position is not None:
+                    # This move just ended here - stash its distance/speed so
+                    # the cut detected in the hold now starting can credit it.
+                    self._pending_advance_distance = abs(position - self._hold_start_position)
+                    self._pending_advance_speed = self._move_max_command_velocity
+                self._move_max_command_velocity = None
                 self._hold_start_ts = ts
                 self._hold_start_position = position
                 self._hold_max_blade_position = None
@@ -150,6 +196,8 @@ class Detector:
             self._emit_cycle(ts, snapshot)
 
         self._pending_batch_reload = False
+        self._pending_advance_distance = None
+        self._pending_advance_speed = None
 
     def _emit_cycle(self, ts, snapshot):
         part_number = snapshot.get("part_number")
@@ -164,7 +212,14 @@ class Detector:
             "parts_per_cut": snapshot.get("parts_per_cut"),
             "backgauge_position": self._hold_start_position,
             "cycle_duration_s": cycle_duration,
-            "theoretical_duration_s": self._theoretical_duration_s(part_number, blade_feed_rate),
+            "theoretical_duration_s": self._theoretical_duration_s(
+                blade_feed_rate,
+                snapshot.get("blade_return_speed"),
+                self._hold_max_blade_position,
+                bool(self._pending_batch_reload),
+                self._pending_advance_distance,
+                self._pending_advance_speed,
+            ),
             # Assumed: the cut immediately after a backgauge return-to-home
             # is the trim cut. Verify against real data - CURRENT_RECIPE.ATD
             # (auto trim distance) is available if this needs refining.

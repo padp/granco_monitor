@@ -15,6 +15,8 @@ STATE_TAGS = [
     "AUTO_MODE",
     "BLADE_CURRENT",
     "SAWBLADE.ActualPosition",
+    "SAWBLADE_RET_SPEED",
+    "BACKGAUGE_COMMAND_VELOCITY",
     "BACKGAUGE_ACTUAL_POS",
     "BACKGAUGE_HOME_POS",
     "NEXT_BACKGAUGE_POS",
@@ -60,6 +62,8 @@ TAG_ALIASES = {
     "AUTO_MODE": "auto_mode",
     "BLADE_CURRENT": "blade_current",
     "SAWBLADE.ActualPosition": "blade_position",
+    "SAWBLADE_RET_SPEED": "blade_return_speed",
+    "BACKGAUGE_COMMAND_VELOCITY": "backgauge_command_velocity",
     "BACKGAUGE_ACTUAL_POS": "backgauge_position",
     "BACKGAUGE_HOME_POS": "backgauge_home_position",
     "NEXT_BACKGAUGE_POS": "next_backgauge_position",
@@ -103,9 +107,25 @@ BACKGAUGE_HOME_TOLERANCE = 1.0
 # blade_current_peak can be logged per cycle for future tuning.
 BLADE_CUTTING_CURRENT_THRESHOLD = 18.0
 
+# User-estimated blade return speed (in/min), used whenever the live
+# SAWBLADE_RET_SPEED tag reads as None/0 - "close enough" per the user,
+# not a measured value.
+BLADE_RETURN_SPEED_FALLBACK = 600.0
+
+# Fallback backgauge advance speed (in/min), used only if
+# BACKGAUGE_COMMAND_VELOCITY wasn't captured during a given move (missed
+# by poll timing, reads 0/None, etc). No estimate confirmed yet - the
+# live tag is polled and its observed value during each move is preferred;
+# this is just a safety net so theoretical_duration_s doesn't silently
+# drop the backgauge-advance term entirely while that's being confirmed.
+BACKGAUGE_MOVE_SPEED_FALLBACK = None
+
 # Known dead-cycle constant described by the user: time for the backgauge
-# to return at the end of a cut cycle. NOT YET MEASURED. Leave as None
-# until known - theoretical_duration_s will simply omit this term.
+# to return home after finishing a batch (a per-BATCH event, distinct
+# from the blade's own per-CUT in/out stroke - see SAWBLADE_RET_SPEED
+# above, which already covers the blade side via a live tag). NOT YET
+# MEASURED. Leave as None until known - theoretical_duration_s will
+# simply omit this term.
 BACKGAUGE_RETURN_TIME_S = None
 
 # --- Connection / reliability ---
