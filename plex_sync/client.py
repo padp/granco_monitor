@@ -120,3 +120,25 @@ def search_workcenter_logs(begin_date: str, end_date: str):
         },
     )
     return resp.json().get("Data")
+
+
+def search_current_clocked_in(workcenter_key: int):
+    """Only takes one workcenter at a time - the Plex UI this was captured
+    from doesn't offer a multi-select for this report either, so the two
+    Granco workcenter keys (58083, 58079) get queried separately and
+    merged by the caller."""
+    _ensure_session()
+    resp = _post(
+        "https://cloud.plex.com/HumanResources/ClockinMaintenance/SearchCurrentClockedInUsers",
+        params={
+            "__asid": _secrets["ASID"],
+            "limit": "true",
+            "sourceActionKey": config.SEARCH_CURRENT_CLOCKED_IN_SOURCE_ACTION_KEY,
+        },
+        json={
+            "WorkcenterKey": str(workcenter_key),
+            "DirectOnly": False,
+            "ReportType": "Currently Clocked In",
+        },
+    )
+    return resp.json().get("Data")

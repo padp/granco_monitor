@@ -55,6 +55,19 @@ def ingest():
             )
         counts[table_name] = len(rows)
 
+    # clocked_in_now is a point-in-time snapshot (who's clocked in right
+    # now), not an append-only log like the tables above - upserting it
+    # would leave people who've since clocked out sitting in the
+    # collection forever. Full replace each sync cycle instead, and only
+    # when the key is actually present (an empty list still means "0
+    # people currently clocked in", a real result worth writing).
+    if "clocked_in_now" in body:
+        rows = body["clocked_in_now"] or []
+        db.clocked_in_now.delete_many({})
+        if rows:
+            db.clocked_in_now.insert_many(rows)
+        counts["clocked_in_now"] = len(rows)
+
     return jsonify(ok=True, counts=counts)
 
 
@@ -91,27 +104,16 @@ def cycles_recent():
 
 @app.get("/api/staffing/current")
 def staffing_current():
-    """Every WorkcenterLog row is inherently backward-looking (it only
-    exists once Plex has recorded it), so there's no true instantaneous
-    roster - the most honest proxy is "whoever was on the single most
-    recent row", not an aggregate of each operator's own most recent
-    segment (that undercounts: when one operator's status diverges from
-    the group - e.g. steps out for a break - only they get a fresh row,
-    while the rest of the crew's row goes stale until their own status
-    next changes, even though they're still there)."""
+    """clocked_in_now comes straight from Plex's own "currently clocked
+    in" report (HumanResources/ClockinMaintenance/SearchCurrentClockedInUsers)
+    - a direct, purpose-built answer to who's here right now, not inferred
+    from WorkcenterLog activity (that inference is still used for the
+    shift crew summary below, where it's the right tool - a historical
+    time/status breakdown - but it's a worse fit for "right now")."""
     db = get_db()
-    latest = db.operator_segments.find_one(sort=[("end_ts", -1)], projection={"log_key": True})
-    if not latest:
-        return jsonify(operators=[], count=0, min_required=MIN_STAFF_COUNT, understaffed=True, as_of=None)
-
-    latest_segments = list(
-        db.operator_segments.find(
-            {"log_key": latest["log_key"]},
-            projection={"_id": False, "employee_name": True, "end_ts": True},
-        )
-    )
-    operators = sorted({seg["employee_name"] for seg in latest_segments if seg.get("employee_name")})
-    as_of = max((seg["end_ts"] for seg in latest_segments), default=None)
+    rows = list(db.clocked_in_now.find(sort=[("employee_name", 1)], projection={"_id": False}))
+    operators = sorted({r["employee_name"] for r in rows if r.get("employee_name")})
+    as_of = max((r["synced_at"] for r in rows), default=None) if rows else None
 
     return jsonify(
         operators=operators,

@@ -39,6 +39,11 @@ WORKCENTER_KEYS_CSV = "58083,58079"
 # endpoint-specific, not something to guess at if it ever needs changing.
 SEARCH_WORKCENTER_LOGS_SOURCE_ACTION_KEY = "11796"
 
+# Same deal for HumanResources/ClockinMaintenance/SearchCurrentClockedInUsers -
+# a dedicated "who's actually clocked in right now" report, a better
+# staffing signal than inferring presence from WorkcenterLog rows.
+SEARCH_CURRENT_CLOCKED_IN_SOURCE_ACTION_KEY = "18432"
+
 # --- Segment derivation / sync loop ---
 
 # Plex's Status field, seeded from a real 74-row sample - falls back to

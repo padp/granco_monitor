@@ -1,10 +1,14 @@
-"""Sync loop: pull recent Plex WorkcenterLog rows, derive operator segments,
-store them locally, and forward to the cloud API.
+"""Sync loop: pull recent Plex WorkcenterLog rows (-> operator_segments,
+for the shift crew summary) and the current clocked-in roster (->
+clocked_in_now, for the real-time staffing check), and forward both to
+the cloud API.
 
 Mirrors publisher/publisher.py's shape (loop, sleep, retry-next-tick on
 failure), but simpler - log_key+badge_no is already a stable idempotent
 key, so there's no checkpoint to track, just re-fetch the current day
-every tick and let the upserts (local and cloud) absorb the overlap.
+every tick and let the upserts (local and cloud) absorb the overlap. The
+roster has no local durability need at all (see roster.py) - it's fetched
+and forwarded fresh every cycle.
 
 Reuses the publisher's existing secret/granco_publisher.txt (API_URL/
 API_KEY) rather than a second copy, since this forwards to the same
@@ -19,7 +23,8 @@ import requests
 from publisher.config import load_api_config
 
 from . import config
-from .client import search_workcenter_logs
+from .client import search_current_clocked_in, search_workcenter_logs
+from .roster import rows_to_roster
 from .segments import rows_to_segments
 from .storage import Storage
 
@@ -37,7 +42,7 @@ def _current_day_query_ts() -> str:
     return local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-def sync_once(storage: Storage, api_url: str, api_key: str) -> int:
+def sync_once(storage: Storage, api_url: str, api_key: str) -> tuple:
     ts = _current_day_query_ts()
 
     data = search_workcenter_logs(ts, ts)
@@ -45,30 +50,37 @@ def sync_once(storage: Storage, api_url: str, api_key: str) -> int:
     segments = rows_to_segments(rows)
     storage.upsert_segments(segments)
 
-    if segments:
-        payload_rows = [{**seg, "source_id": f"{seg['log_key']}:{seg['badge_no']}"} for seg in segments]
-        response = requests.post(
-            f"{api_url}/ingest",
-            json={"operator_segments": payload_rows},
-            headers={"X-Api-Key": api_key},
-            timeout=60,
-        )
-        response.raise_for_status()
+    clockedin_by_workcenter = {
+        wc["WorkcenterKey"]: search_current_clocked_in(wc["WorkcenterKey"]) for wc in config.WORKCENTERS
+    }
+    roster = rows_to_roster(clockedin_by_workcenter)
 
-    return len(segments)
+    payload = {"clocked_in_now": roster}
+    if segments:
+        payload["operator_segments"] = [{**seg, "source_id": f"{seg['log_key']}:{seg['badge_no']}"} for seg in segments]
+
+    response = requests.post(
+        f"{api_url}/ingest",
+        json=payload,
+        headers={"X-Api-Key": api_key},
+        timeout=60,
+    )
+    response.raise_for_status()
+
+    return len(segments), len(roster)
 
 
 def run():
     api_url, api_key = load_api_config()
     storage = Storage()
 
-    print(f"Syncing Plex WorkcenterLog -> {api_url} every {config.SYNC_INTERVAL_S}s (current day)")
+    print(f"Syncing Plex WorkcenterLog + clocked-in roster -> {api_url} every {config.SYNC_INTERVAL_S}s")
 
     try:
         while True:
             try:
-                count = sync_once(storage, api_url, api_key)
-                print(f"synced {count} operator segments")
+                segment_count, roster_count = sync_once(storage, api_url, api_key)
+                print(f"synced {segment_count} operator segments, {roster_count} currently clocked in")
             except _RETRYABLE_ERRORS as exc:
                 print(f"sync error (will retry): {exc}")
             time.sleep(config.SYNC_INTERVAL_S)
