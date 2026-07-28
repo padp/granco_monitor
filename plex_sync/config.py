@@ -60,11 +60,8 @@ STATUS_CATEGORY_MAP = {
 # makes re-upserting the same day harmless.
 SYNC_INTERVAL_S = 60
 
-# How stale an operator's most-recent segment can be before they're no
-# longer counted as "currently logged in". There's no explicit logout
-# event in this data - this is a recency proxy, looser than the PLC's
-# 5-minute STALL_THRESHOLD_S since Plex log rows can lag. A starting
-# guess, not a measured value - tune against a real understaffing
-# incident once this is live.
-STAFFING_RECENCY_S = 15 * 60
+# Minimum operators expected on this workcenter at any time - see
+# api/app.py's /api/staffing/current, which is the actual consumer of
+# this threshold (this copy is just the source-of-truth reference for
+# what "understaffed" means here).
 MIN_STAFF_COUNT = 3

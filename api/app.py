@@ -4,7 +4,7 @@ Read endpoints are open (cut-timing data isn't sensitive); only /ingest
 is gated, since it's the only endpoint that writes.
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
@@ -23,11 +23,6 @@ CORS(app)
 PLANT_TZ = ZoneInfo("America/Chicago")
 STALL_THRESHOLD_S = 5 * 60
 
-# How stale an operator's most-recent segment can be before they're no
-# longer counted as "currently logged in" - see plex_sync/config.py's
-# STAFFING_RECENCY_S for why this is a recency proxy, not a hard logout
-# signal, and why it's looser than STALL_THRESHOLD_S above.
-STAFFING_RECENCY_S = 15 * 60
 MIN_STAFF_COUNT = 3
 
 if os.environ.get("SQL_PASS"):
@@ -96,24 +91,34 @@ def cycles_recent():
 
 @app.get("/api/staffing/current")
 def staffing_current():
+    """Every WorkcenterLog row is inherently backward-looking (it only
+    exists once Plex has recorded it), so there's no true instantaneous
+    roster - the most honest proxy is "whoever was on the single most
+    recent row", not an aggregate of each operator's own most recent
+    segment (that undercounts: when one operator's status diverges from
+    the group - e.g. steps out for a break - only they get a fresh row,
+    while the rest of the crew's row goes stale until their own status
+    next changes, even though they're still there)."""
     db = get_db()
-    now = datetime.now(PLANT_TZ)
-    cutoff = (now - timedelta(seconds=STAFFING_RECENCY_S)).replace(tzinfo=None).isoformat()
+    latest = db.operator_segments.find_one(sort=[("end_ts", -1)], projection={"log_key": True})
+    if not latest:
+        return jsonify(operators=[], count=0, min_required=MIN_STAFF_COUNT, understaffed=True, as_of=None)
 
-    recent = db.operator_segments.find(
-        {"end_ts": {"$gte": cutoff}},
-        projection={"_id": False, "badge_no": True, "employee_name": True, "end_ts": True},
-        sort=[("end_ts", -1)],
+    latest_segments = list(
+        db.operator_segments.find(
+            {"log_key": latest["log_key"]},
+            projection={"_id": False, "employee_name": True, "end_ts": True},
+        )
     )
-    latest_by_badge = {}
-    for seg in recent:
-        latest_by_badge.setdefault(seg["badge_no"], seg["employee_name"])
+    operators = sorted({seg["employee_name"] for seg in latest_segments if seg.get("employee_name")})
+    as_of = max((seg["end_ts"] for seg in latest_segments), default=None)
 
     return jsonify(
-        operators=sorted(latest_by_badge.values()),
-        count=len(latest_by_badge),
+        operators=operators,
+        count=len(operators),
         min_required=MIN_STAFF_COUNT,
-        understaffed=len(latest_by_badge) < MIN_STAFF_COUNT,
+        understaffed=len(operators) < MIN_STAFF_COUNT,
+        as_of=as_of,
     )
 
 

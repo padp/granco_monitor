@@ -43,8 +43,9 @@ async function refreshStaffing() {
   badge.textContent = `${data.count ?? 0} staffed`;
   badge.className = `badge ${understaffed ? "understaffed" : "staffed"}`;
 
-  document.getElementById("staffing-operators").textContent =
-    (data.operators || []).join(", ") || "-";
+  const operatorNames = (data.operators || []).join(", ") || "-";
+  const asOf = data.as_of ? ` (as of ${fmtTs(data.as_of)})` : "";
+  document.getElementById("staffing-operators").textContent = `${operatorNames}${asOf}`;
 }
 
 function fmtHMS(totalSeconds) {
