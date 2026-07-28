@@ -48,41 +48,6 @@ async function refreshStaffing() {
   document.getElementById("staffing-operators").textContent = `${operatorNames}${asOf}`;
 }
 
-function fmtHMS(totalSeconds) {
-  const s = Math.round(totalSeconds || 0);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return `${h}h ${m}m`;
-}
-
-function fmtPct(categoryPct, key) {
-  const value = categoryPct?.[key];
-  return value === undefined ? "-" : `${value.toFixed(0)}%`;
-}
-
-async function refreshShiftSummary() {
-  const res = await fetch(`${API_BASE}/api/shift/summary`);
-  const data = await res.json();
-
-  document.getElementById("shift-label").textContent = data.shift_label || "-";
-
-  const tbody = document.querySelector("#shift-summary-table tbody");
-  tbody.innerHTML = "";
-  for (const op of data.operators || []) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${op.employee_name ?? "-"}</td>
-      <td>${fmtHMS(op.total_seconds)}</td>
-      <td>${fmtPct(op.category_pct, "production")}</td>
-      <td>${fmtPct(op.category_pct, "setup")}</td>
-      <td>${fmtPct(op.category_pct, "break")}</td>
-      <td>${fmtPct(op.category_pct, "idle")}</td>
-      <td>${fmtPct(op.category_pct, "other")}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
 // Grade thresholds are actual/theoretical duration ratios, not a measured
 // standard - a starting heuristic to flag cuts worth a second look, same
 // spirit as this project's other not-yet-measured constants.
@@ -133,6 +98,44 @@ async function refreshSchedule() {
   }
 }
 
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+// Same 4-band feel as the per-cut Grade column, just against a 0-100
+// weekly score instead of a duration ratio - not a measured standard,
+// a starting heuristic.
+const SCORE_BANDS = [
+  { min: 85, cls: "grade-green" },
+  { min: 70, cls: "grade-yellow" },
+  { min: 50, cls: "grade-orange" },
+];
+
+function scoreClass(score) {
+  if (score === null || score === undefined) return "grade-unknown";
+  return (SCORE_BANDS.find((b) => score >= b.min) || { cls: "grade-red" }).cls;
+}
+
+async function refreshLeaderboard() {
+  const res = await fetch(`${API_BASE}/api/shifts/leaderboard`);
+  const data = await res.json();
+
+  document.getElementById("leaderboard-window").textContent =
+    data.window_days ? `Last ${data.window_days} days` : "-";
+
+  const list = document.getElementById("leaderboard-list");
+  list.innerHTML = "";
+  (data.shifts || []).forEach((s, i) => {
+    const li = document.createElement("li");
+    li.className = `leaderboard-row ${i === 0 ? "rank-1" : ""}`;
+    const scoreText = s.score === null || s.score === undefined ? "no data" : `${s.score}%`;
+    li.innerHTML = `
+      <span class="leaderboard-medal">${MEDALS[i] || ""}</span>
+      <span class="leaderboard-shift">${s.shift}</span>
+      <span class="leaderboard-score ${scoreClass(s.score)}">${scoreText}</span>
+    `;
+    list.appendChild(li);
+  });
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -164,8 +167,8 @@ async function refreshAll() {
       refreshStatus(),
       refreshCycles(),
       refreshStaffing(),
-      refreshShiftSummary(),
       refreshSchedule(),
+      refreshLeaderboard(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;

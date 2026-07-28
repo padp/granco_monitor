@@ -112,6 +112,77 @@ main {
 
 .card-wide { max-width: none; }
 
+/* ------------------------------------------------------------ */
+/* TV dashboard layout (index.html)                               */
+/* ------------------------------------------------------------ */
+
+/* The main dashboard is meant to run unattended on a 16:9 TV at the
+   workcenter, not be scrolled by hand - it fills the viewport as a fixed
+   two-column grid instead of the schedule page's normal scrolling
+   single-column layout. Live status/crew/cycle info stays on the left;
+   the forward-looking schedule sits top-right. */
+body.tv-page {
+  height: 100vh;
+  overflow: hidden;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+main.dashboard-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 1.25rem 1.5rem;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.25rem;
+}
+
+.dashboard-grid .col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+/* Cards inside a TV column use the column's own gap for spacing, not
+   the default stacked-card margin (that would double up). */
+.dashboard-grid .col > .card { margin-bottom: 0; }
+
+/* Right column holds two non-stretching cards: schedule pinned top,
+   leaderboard pinned bottom ("top right" / "bottom right" per the
+   user's own layout request) - space-between puts whatever gap exists
+   between them instead of the cards drifting together in the middle. */
+.col-right { justify-content: space-between; }
+.col-right .card { flex: 0 0 auto; }
+
+/* Recent Cycles is the one card whose content can outgrow the screen -
+   it grows to fill the rest of the left column and scrolls internally
+   rather than pushing the page taller than the TV can show. */
+.cycles-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cycles-card .overflow-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  /* Fallback for viewing this on a normal phone/laptop screen instead of
+     the TV - a single scrolling column, same as the schedule page. */
+  body.tv-page { height: auto; overflow: visible; padding-bottom: 2rem; }
+  main.dashboard-grid { display: block; padding: 0 1.5rem; }
+  .dashboard-grid .col { display: block; }
+  .dashboard-grid .col > .card { margin-bottom: 1.25rem; }
+  .cycles-card .overflow-wrap { overflow-y: visible; }
+}
+
 h2 {
   margin: 0 0 0.75rem;
   font-size: 13px;
@@ -159,7 +230,7 @@ table {
   width: 100%;
   min-width: 640px;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 th, td {
@@ -329,4 +400,57 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
 .form-status {
   color: var(--color-text-muted);
   font-size: 0.85rem;
+}
+
+/* ------------------------------------------------------------ */
+/* Weekly shift leaderboard                                       */
+/* ------------------------------------------------------------ */
+
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.leaderboard-medal {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.leaderboard-shift {
+  flex: 1 1 auto;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.leaderboard-score {
+  font-weight: 800;
+  font-size: 1.3rem;
+  flex: 0 0 auto;
+}
+
+.leaderboard-score.grade-green { color: var(--grade-green); }
+.leaderboard-score.grade-yellow { color: var(--grade-yellow); }
+.leaderboard-score.grade-orange { color: var(--grade-orange); }
+.leaderboard-score.grade-red { color: var(--grade-red); }
+.leaderboard-score.grade-unknown { color: var(--color-text-muted); }
+
+/* 1st place gets a little extra pop - a subtle gold-tinted row instead
+   of just a bigger medal, so the win reads at a glance from a TV. */
+.leaderboard-row.rank-1 {
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-bg));
+  border: 1px solid var(--color-accent);
 }

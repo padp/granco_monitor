@@ -30,6 +30,13 @@ STALL_THRESHOLD_S = 5 * 60
 
 MIN_STAFF_COUNT = 3
 
+# Mirrors docs/app.js's GRADE_THRESHOLDS - a cut counts as "great or
+# good" (the top two grade bands) at or below this ratio. Reused here to
+# score a shift's whole week instead of one row. Keep both files in sync.
+GRADE_GOOD_MAX = 1.4
+
+LEADERBOARD_WINDOW_DAYS = 7
+
 # Accounts are gated to the company email domain - the user's own
 # stated requirement, both as an access filter and so a future
 # self-service password reset has somewhere real to send a link (not
@@ -48,20 +55,27 @@ _SECOND_START = (14, 50)
 _THIRD_START = (22, 50)
 
 
+def _shift_name_for(t: tuple) -> str:
+    """t is an (hour, minute) tuple - matches collector/shifts.py's
+    shift_name() boundary logic exactly (see _current_date_and_shift's
+    docstring for why this is a deliberate duplicate, not an import)."""
+    if t >= _THIRD_START or t < _FIRST_START:
+        return "Third Shift"
+    if t < _SECOND_START:
+        return "First Shift"
+    return "Second Shift"
+
+
 def _current_date_and_shift(now: datetime) -> tuple:
     """Plant-local (date, shift) for "right now", matching
     collector/shifts.py's shift_name()/shift_label_date() - third shift
     crosses midnight and is attributed to the date its early-morning
     half falls on, not the date it started on."""
     t = (now.hour, now.minute)
-    if t >= _THIRD_START or t < _FIRST_START:
-        shift = "Third Shift"
-        label_date = (now + timedelta(hours=1, minutes=30)).date() if t >= _THIRD_START else now.date()
-    elif t < _SECOND_START:
-        shift = "First Shift"
-        label_date = now.date()
+    shift = _shift_name_for(t)
+    if shift == "Third Shift" and t >= _THIRD_START:
+        label_date = (now + timedelta(hours=1, minutes=30)).date()
     else:
-        shift = "Second Shift"
         label_date = now.date()
     return label_date.isoformat(), shift
 
@@ -225,6 +239,48 @@ def cycles_recent():
     db = get_db()
     cycles = list(db.cycles.find(sort=[("ts", -1)], limit=limit, projection={"_id": False}))
     return jsonify(cycles=cycles)
+
+
+@app.get("/api/shifts/leaderboard")
+def shifts_leaderboard():
+    """Ranks the three shifts by what percentage of this week's cuts
+    graded Great or Good (see docs/app.js's per-cut Grade column - same
+    ratio bands, just rolled up to a weekly score instead of shown per
+    row). Trim/reload cuts are excluded, same reasoning as the Grade
+    column: their theoretical_duration_s doesn't cover the reload time,
+    so comparing them would always look artificially bad."""
+    db = get_db()
+    window_start = (datetime.now(PLANT_TZ) - timedelta(days=LEADERBOARD_WINDOW_DAYS)).replace(tzinfo=None)
+
+    cycles = db.cycles.find(
+        {"ts": {"$gte": window_start.isoformat()}, "is_trim_cut": {"$ne": 1}},
+        projection={"_id": False, "ts": True, "cycle_duration_s": True, "theoretical_duration_s": True},
+    )
+
+    tallies = {name: {"graded": 0, "great_or_good": 0} for name in SHIFT_NAMES}
+    for cycle in cycles:
+        ts = cycle.get("ts")
+        actual = cycle.get("cycle_duration_s")
+        theoretical = cycle.get("theoretical_duration_s")
+        if not ts or actual is None or not theoretical:
+            continue
+
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        ratio = actual / theoretical
+        tallies[shift]["graded"] += 1
+        if ratio <= GRADE_GOOD_MAX:
+            tallies[shift]["great_or_good"] += 1
+
+    shifts = []
+    for name in SHIFT_NAMES:
+        graded = tallies[name]["graded"]
+        score = round(tallies[name]["great_or_good"] / graded * 100) if graded else None
+        shifts.append({"shift": name, "score": score, "graded_count": graded})
+
+    shifts.sort(key=lambda s: (s["score"] is None, -(s["score"] or 0)))
+
+    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
 @app.get("/api/staffing/current")
