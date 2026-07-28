@@ -56,9 +56,13 @@ class Detector:
         self._plc = plc_client
 
     def process(self, ts: datetime, snapshot: dict, reason: str = None):
-        self._update_state(ts, snapshot, reason)
+        # _track_backgauge first: it may lock in pending_batch_reload for
+        # this exact poll (a reload move starting), and _update_state needs
+        # that fresh value, not last poll's, to attribute an IDLE
+        # transition to "Batch Reload" correctly.
         self._maybe_cache_recipe(ts, snapshot)
         self._track_backgauge(ts, snapshot)
+        self._update_state(ts, snapshot, reason)
 
     def _update_state(self, ts, snapshot, reason):
         auto_mode = snapshot.get("auto_mode")
@@ -66,6 +70,12 @@ class Detector:
         if new_state != self._state:
             if self._state_event_id is not None:
                 self._storage.end_state_event(self._state_event_id, ts)
+            # pending_batch_reload stays True for the whole reload sequence
+            # (return-to-home move, wait, light-curtain approach) until the
+            # actual trim cut consumes it - so if we're dropping to IDLE
+            # somewhere in that window, it's a reload, not some other cause.
+            if new_state == IDLE and reason is None and self._pending_batch_reload:
+                reason = "Batch Reload"
             self._state_event_id = self._storage.start_state_event(ts, new_state, reason)
             self._state = new_state
 
@@ -152,21 +162,26 @@ class Detector:
 
         if moving_now:
             if not self._was_moving:
+                # _handle_hold_end must run first, using whatever was
+                # already pending from BEFORE this hold - only then do we
+                # lock in this hold's own prediction (_check_next_move,
+                # made while holding) about the move now beginning. Locking
+                # in here, as the move starts, rather than waiting to
+                # arrive at wherever it ends, means AUTO_MODE dropping
+                # partway through the move itself (not just once
+                # settled) still gets attributed to the reload correctly.
                 self._handle_hold_end(ts, snapshot)
-        else:
-            if self._was_moving or self._hold_start_ts is None:
-                if self._was_moving and self._next_move_will_reload:
-                    # Lock in the PREVIOUS hold's prediction about the move
-                    # that just brought us here - not this new hold's own
-                    # prediction, which is about whatever comes after it.
+                if self._next_move_will_reload:
                     self._pending_batch_reload = True
                 self._next_move_will_reload = False
+        else:
+            if self._was_moving or self._hold_start_ts is None:
                 self._hold_start_ts = ts
                 self._hold_start_position = position
                 self._hold_max_blade_position = None
                 self._hold_max_blade_current = None
             self._accumulate_hold(snapshot)
-            self._check_next_move(position, snapshot)
+            self._check_next_move(snapshot)
 
         self._was_moving = moving_now
         self._prev_bg_position = position
@@ -187,20 +202,29 @@ class Detector:
                 else max(self._hold_max_blade_current, blade_current)
             )
 
-    def _check_next_move(self, position, snapshot):
+    def _check_next_move(self, snapshot):
         """Predict, while still holding, whether the move that will follow
-        THIS hold is a normal per-cut advance. Only ever sets
-        _next_move_will_reload to True here, never clears it - clearing
-        only happens when a new hold starts and consumes it (see
-        _track_backgauge), so a brief predicted-normal poll near the end
-        of the hold can't erase an earlier predicted-reload poll.
+        THIS hold is a normal per-cut advance.
+
+        next_backgauge_position turned out not to be a usable signal (an
+        earlier attempt using it was off by one cut). Instead: a hold's
+        own position, if it's at or above the machine's minimum cutting
+        position but below the recipe's cut_length, means this hold is
+        the last normal cut of the batch (using up the remnant) - not
+        enough material remains for another full-length cut, so the
+        move that follows THIS hold must be a reload.
+
+        Only ever sets _next_move_will_reload to True here, never clears
+        it - clearing only happens when a new hold starts and consumes it
+        (see _track_backgauge), so a brief predicted-normal poll near the
+        end of the hold can't erase an earlier predicted-reload poll.
         """
-        next_position = snapshot.get("next_backgauge_position")
+        position = snapshot.get("backgauge_position")
         cut_length_mm = snapshot.get("cut_length")
-        if next_position is None or not cut_length_mm:
+        if position is None or not cut_length_mm:
             return
         cut_length_in = cut_length_mm / config.MM_PER_INCH
-        if cut_length_in > next_position:
+        if config.MIN_CUT_POSITION_IN <= position < cut_length_in:
             self._next_move_will_reload = True
 
     def _handle_hold_end(self, ts, snapshot):
@@ -246,9 +270,10 @@ class Detector:
             # for normal cuts, just not applied to trim cuts.
             parts_per_cut = snapshot.get("parts_per_cut")
 
-        # Trim cut always starts a new batch at position 1; otherwise keep
-        # counting up from wherever the batch's numbering left off.
-        self._cut_number = 1 if is_trim_cut else self._cut_number + 1
+        # Trim cuts aren't production - they get 0, not a slot in the
+        # count, so the first real production cut of the batch is 1 (not
+        # 2), and trim never gets mistaken for counted output.
+        self._cut_number = 0 if is_trim_cut else self._cut_number + 1
 
         row = {
             "ts": ts.isoformat(),

@@ -4,7 +4,7 @@ Read endpoints are open (cut-timing data isn't sensitive); only /ingest
 is gated, since it's the only endpoint that writes.
 """
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
@@ -22,6 +22,13 @@ CORS(app)
 # clock/timezone (Render's server timezone is not the plant's).
 PLANT_TZ = ZoneInfo("America/Chicago")
 STALL_THRESHOLD_S = 5 * 60
+
+# How stale an operator's most-recent segment can be before they're no
+# longer counted as "currently logged in" - see plex_sync/config.py's
+# STAFFING_RECENCY_S for why this is a recency proxy, not a hard logout
+# signal, and why it's looser than STALL_THRESHOLD_S above.
+STAFFING_RECENCY_S = 15 * 60
+MIN_STAFF_COUNT = 3
 
 if os.environ.get("SQL_PASS"):
     # Skipped if SQL_PASS isn't set yet (e.g. at build time) - runs at
@@ -44,7 +51,7 @@ def ingest():
     db = get_db()
     counts = {}
 
-    for table_name in ("cycles", "state_events"):
+    for table_name in ("cycles", "state_events", "operator_segments"):
         rows = body.get(table_name) or []
         if rows:
             db[table_name].bulk_write(
@@ -85,6 +92,69 @@ def cycles_recent():
     db = get_db()
     cycles = list(db.cycles.find(sort=[("ts", -1)], limit=limit, projection={"_id": False}))
     return jsonify(cycles=cycles)
+
+
+@app.get("/api/staffing/current")
+def staffing_current():
+    db = get_db()
+    now = datetime.now(PLANT_TZ)
+    cutoff = (now - timedelta(seconds=STAFFING_RECENCY_S)).replace(tzinfo=None).isoformat()
+
+    recent = db.operator_segments.find(
+        {"end_ts": {"$gte": cutoff}},
+        projection={"_id": False, "badge_no": True, "employee_name": True, "end_ts": True},
+        sort=[("end_ts", -1)],
+    )
+    latest_by_badge = {}
+    for seg in recent:
+        latest_by_badge.setdefault(seg["badge_no"], seg["employee_name"])
+
+    return jsonify(
+        operators=sorted(latest_by_badge.values()),
+        count=len(latest_by_badge),
+        min_required=MIN_STAFF_COUNT,
+        understaffed=len(latest_by_badge) < MIN_STAFF_COUNT,
+    )
+
+
+@app.get("/api/shift/summary")
+def shift_summary():
+    db = get_db()
+    shift_label = request.args.get("shift_label")
+    if not shift_label:
+        latest = db.operator_segments.find_one(sort=[("end_ts", -1)], projection={"shift_label": True})
+        shift_label = latest["shift_label"] if latest else None
+
+    if not shift_label:
+        return jsonify(shift_label=None, operators=[])
+
+    segments = list(db.operator_segments.find({"shift_label": shift_label}, projection={"_id": False}))
+
+    by_badge = {}
+    for seg in segments:
+        badge = seg.get("badge_no")
+        entry = by_badge.setdefault(
+            badge, {"employee_name": seg.get("employee_name"), "total_seconds": 0.0, "by_category": {}}
+        )
+        duration = seg.get("duration_s") or 0.0
+        category = seg.get("status_category") or "other"
+        entry["total_seconds"] += duration
+        entry["by_category"][category] = entry["by_category"].get(category, 0.0) + duration
+
+    operators = []
+    for entry in by_badge.values():
+        total = entry["total_seconds"]
+        category_pct = {
+            cat: (seconds / total * 100 if total else 0.0) for cat, seconds in entry["by_category"].items()
+        }
+        operators.append({
+            "employee_name": entry["employee_name"],
+            "total_seconds": total,
+            "category_pct": category_pct,
+        })
+    operators.sort(key=lambda o: o["total_seconds"], reverse=True)
+
+    return jsonify(shift_label=shift_label, operators=operators)
 
 
 @app.get("/health")

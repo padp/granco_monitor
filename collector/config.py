@@ -93,14 +93,12 @@ BACKGAUGE_MOVE_EPSILON = 0.3
 # mid-stroke (real strokes observed reaching 18-32).
 BLADE_ENGAGED_POSITION_THRESHOLD = 5.0
 
-# How far next_backgauge_position can be from (current_position -
-# cut_length) and still count as "the upcoming move is a normal per-cut
-# advance" - used to flag a reload/trim cut when it DOESN'T match
-# (replaces an earlier, fragile approach that tried to catch a moving
-# sample within BACKGAUGE_HOME_TOLERANCE of BACKGAUGE_HOME_POS - that
-# depended on unlucky poll timing and an unconfirmed home-position tag
-# value, and in practice never fired).
-BACKGAUGE_NEXT_POS_TOLERANCE = 2.0
+# Minimum backgauge position (in) a cut can physically be made at, per
+# the user - a fixed machine constraint, not a recipe value. A hold whose
+# position is at or above this but below the recipe's cut_length is the
+# last normal cut of a batch (using up the remnant); the hold that
+# follows it will be the reload/trim cut.
+MIN_CUT_POSITION_IN = 3.5
 
 # Amps above which the blade might be actively engaged in material.
 # NOT CONFIRMED - live data hints at a ~17A baseline vs. ~20A during

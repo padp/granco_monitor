@@ -10,6 +10,9 @@ db/*.db-shm
 # Generated PLC tag dump
 discovered_tags.csv
 
+# Generated Plex data dump - may contain real production/operator data
+workcenter_log_sample.json
+
 # Python
 __pycache__/
 *.pyc

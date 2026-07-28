@@ -34,3 +34,6 @@ def ensure_indexes():
     db.cycles.create_index("ts")
     db.state_events.create_index("source_id", unique=True)
     db.state_events.create_index("ts_start")
+    db.operator_segments.create_index("source_id", unique=True)
+    db.operator_segments.create_index("shift_label")
+    db.operator_segments.create_index("end_ts")

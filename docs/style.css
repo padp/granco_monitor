@@ -9,6 +9,8 @@
   --idle: #d97706;
   --unknown: #6b7280;
   --stalled: #dc2626;
+  --staffed: #16a34a;
+  --understaffed: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -73,6 +75,8 @@ h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--muted); }
 .badge.idle { background: var(--idle); }
 .badge.stalled { background: var(--stalled); }
 .badge.unknown { background: var(--unknown); }
+.badge.staffed { background: var(--staffed); }
+.badge.understaffed { background: var(--understaffed); }
 
 .status-details { color: var(--text); font-size: 0.9rem; line-height: 1.5; }
 .status-details strong { color: var(--muted); font-weight: 500; }
