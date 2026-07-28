@@ -9,7 +9,10 @@
 <body>
   <header class="app-header">
     <span class="app-header-title">Granco Saw Monitor</span>
-    <span id="last-updated" class="app-header-subtitle">-</span>
+    <div style="display: flex; align-items: baseline; gap: 1rem;">
+      <a class="app-header-subtitle app-header-link" href="schedule.html">Schedule &rarr;</a>
+      <span id="last-updated" class="app-header-subtitle">-</span>
+    </div>
   </header>
 
   <main>
@@ -22,6 +25,27 @@
           <div><strong>Last cut:</strong> <span id="last-cycle-ts">-</span></div>
           <div><strong>Operators:</strong> <span id="staffing-operators">-</span></div>
         </div>
+      </div>
+    </section>
+
+    <section class="card card-wide">
+      <div class="status-row" style="justify-content: space-between; margin-bottom: 0.75rem;">
+        <h2 style="margin: 0;">Current Shift Schedule</h2>
+        <a class="btn btn-link" href="schedule.html">Edit Schedule &rarr;</a>
+      </div>
+      <div id="schedule-label" class="status-details" style="margin-bottom: 0.5rem;">-</div>
+      <div class="overflow-wrap">
+        <table id="schedule-mirror-table">
+          <thead>
+            <tr>
+              <th>Part Number</th>
+              <th>Job Number</th>
+              <th>Racks</th>
+              <th>Scheduled Time</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
 

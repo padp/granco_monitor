@@ -37,3 +37,7 @@ def ensure_indexes():
     db.operator_segments.create_index("source_id", unique=True)
     db.operator_segments.create_index("shift_label")
     db.operator_segments.create_index("end_ts")
+    db.schedule.create_index([("date", 1), ("shift", 1)], unique=True)
+    db.sessions.create_index("token", unique=True)
+    db.sessions.create_index("created_ts", expireAfterSeconds=30 * 24 * 60 * 60)
+    db.users.create_index("email", unique=True)

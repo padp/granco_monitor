@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Schedule</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Schedule</span>
+    <a class="app-header-subtitle app-header-link" href="index.html">&larr; Back to dashboard</a>
+  </header>
+
+  <main>
+    <section id="auth-card" class="card">
+      <h2 id="auth-title">Log In</h2>
+      <form id="auth-form" class="form-grid">
+        <label>
+          Email
+          <input type="email" id="auth-email" placeholder="you@uwh.uacj-group.com" required>
+        </label>
+        <label>
+          Password
+          <input type="password" id="auth-password" required minlength="8">
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="auth-submit" class="btn btn-primary">Log In</button>
+          <button type="button" id="auth-toggle" class="btn btn-link">Need an account? Create one</button>
+        </div>
+      </form>
+      <div id="auth-error" class="form-error"></div>
+    </section>
+
+    <section id="schedule-card" class="card card-wide hidden">
+      <div class="status-row" style="margin-bottom: 1rem;">
+        <div class="status-details">Logged in as <strong id="current-email">-</strong></div>
+        <button type="button" id="logout-btn" class="btn btn-link">Log out</button>
+      </div>
+
+      <div class="form-grid form-grid-inline">
+        <label>
+          Date
+          <input type="date" id="schedule-date">
+        </label>
+        <label>
+          Shift
+          <select id="schedule-shift">
+            <option>First Shift</option>
+            <option>Second Shift</option>
+            <option>Third Shift</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="overflow-wrap">
+        <table id="schedule-table">
+          <thead>
+            <tr>
+              <th>Part Number</th>
+              <th>Job Number</th>
+              <th>Racks</th>
+              <th>Scheduled Time</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" id="add-row-btn" class="btn btn-secondary">+ Add Row</button>
+        <button type="button" id="save-btn" class="btn btn-primary">Save Schedule</button>
+        <span id="save-status" class="form-status"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="schedule.js"></script>
+</body>
+</html>

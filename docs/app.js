@@ -112,6 +112,27 @@ function gradeCellHtml(cycle) {
   </span>`;
 }
 
+async function refreshSchedule() {
+  const res = await fetch(`${API_BASE}/api/schedule/current`);
+  const data = await res.json();
+
+  document.getElementById("schedule-label").textContent =
+    data.date && data.shift ? `${data.date} — ${data.shift}` : "-";
+
+  const tbody = document.querySelector("#schedule-mirror-table tbody");
+  tbody.innerHTML = "";
+  for (const row of data.rows || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.part_number || "-"}</td>
+      <td>${row.job_number || "-"}</td>
+      <td>${row.racks ?? "-"}</td>
+      <td>${row.scheduled_time || "-"}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -139,7 +160,13 @@ async function refreshCycles() {
 
 async function refreshAll() {
   try {
-    await Promise.all([refreshStatus(), refreshCycles(), refreshStaffing(), refreshShiftSummary()]);
+    await Promise.all([
+      refreshStatus(),
+      refreshCycles(),
+      refreshStaffing(),
+      refreshShiftSummary(),
+      refreshSchedule(),
+    ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {

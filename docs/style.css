@@ -85,6 +85,12 @@ body {
   opacity: 0.85;
 }
 
+.app-header-link {
+  color: #fff;
+  text-decoration: none;
+}
+.app-header-link:hover { text-decoration: underline; }
+
 /* ------------------------------------------------------------ */
 /* Layout / cards                                                 */
 /* ------------------------------------------------------------ */
@@ -214,3 +220,113 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 .grade-yellow { color: var(--grade-yellow); }
 .grade-orange { color: var(--grade-orange); }
 .grade-red { color: var(--grade-red); }
+
+/* ------------------------------------------------------------ */
+/* Forms / schedule page                                          */
+/* ------------------------------------------------------------ */
+
+.hidden { display: none; }
+
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 360px;
+}
+
+.form-grid-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  max-width: none;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+input, select {
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+/* Table cell inputs shouldn't look like a separate boxed field floating
+   inside the row - flatten them so the table itself still reads as the
+   primary shape, spreadsheet-style. */
+td input {
+  width: 100%;
+  min-width: 90px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.35rem 0.4rem;
+}
+td input:hover { border-color: var(--color-border); }
+td input:focus { background: var(--color-surface); border-color: var(--color-accent); }
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--color-accent-dark); }
+
+.btn-secondary {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.btn-secondary:hover { background: var(--color-accent-soft); }
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  padding: 0.2rem 0;
+  text-decoration: underline;
+}
+.btn-link:hover { color: var(--color-accent-dark); }
+
+.form-error {
+  color: var(--stalled);
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+  min-height: 1.2em;
+}
+
+.form-status {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
