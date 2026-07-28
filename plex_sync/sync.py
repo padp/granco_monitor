@@ -3,7 +3,7 @@ store them locally, and forward to the cloud API.
 
 Mirrors publisher/publisher.py's shape (loop, sleep, retry-next-tick on
 failure), but simpler - log_key+badge_no is already a stable idempotent
-key, so there's no checkpoint to track, just re-fetch a rolling window
+key, so there's no checkpoint to track, just re-fetch the current day
 every tick and let the upserts (local and cloud) absorb the overlap.
 
 Reuses the publisher's existing secret/granco_publisher.txt (API_URL/
@@ -12,7 +12,7 @@ cloud API /ingest endpoint the publisher already talks to.
 """
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 import requests
 
@@ -26,12 +26,21 @@ from .storage import Storage
 _RETRYABLE_ERRORS = (requests.RequestException, sqlite3.Error, PermissionError, FileNotFoundError)
 
 
-def sync_once(storage: Storage, api_url: str, api_key: str) -> int:
-    now = datetime.utcnow()
-    begin = (now - timedelta(hours=config.SYNC_WINDOW_HOURS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    end = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+def _current_day_query_ts() -> str:
+    """The captured browser request used the same value for BeginDate and
+    EndDate (e.g. '2026-07-28T05:00:00.000Z') - per the user, the API only
+    cares about the date, and that value is plant-local midnight expressed
+    in UTC (05:00Z during CDT, since America/Chicago is UTC-5 then). Using
+    ZoneInfo rather than hardcoding the offset keeps this correct across
+    the CDT/CST transition."""
+    local_midnight = datetime.now(config.PLANT_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-    data = search_workcenter_logs(begin, end)
+
+def sync_once(storage: Storage, api_url: str, api_key: str) -> int:
+    ts = _current_day_query_ts()
+
+    data = search_workcenter_logs(ts, ts)
     rows = (data or {}).get("Rows") or []
     segments = rows_to_segments(rows)
     storage.upsert_segments(segments)
@@ -53,10 +62,7 @@ def run():
     api_url, api_key = load_api_config()
     storage = Storage()
 
-    print(
-        f"Syncing Plex WorkcenterLog -> {api_url} every {config.SYNC_INTERVAL_S}s "
-        f"(rolling {config.SYNC_WINDOW_HOURS}h window)"
-    )
+    print(f"Syncing Plex WorkcenterLog -> {api_url} every {config.SYNC_INTERVAL_S}s (current day)")
 
     try:
         while True:

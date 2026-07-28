@@ -53,12 +53,12 @@ STATUS_CATEGORY_MAP = {
     "Material Handler Request": "idle",
 }
 
-# How often run_plex_sync.py polls Plex, and how wide a rolling window it
-# re-fetches each time (wide enough to catch a row Plex finalizes/corrects
-# slightly after the fact - log_key+badge_no makes re-upserting an
-# overlapping window harmless).
+# How often run_plex_sync.py polls Plex. Each poll re-fetches the whole
+# current day (SearchWorkcenterLogs appears to be date-scoped rather than
+# time-ranged - see plex_sync/sync.py's _current_day_query_ts), which also
+# catches any row Plex finalizes/corrects after the fact - log_key+badge_no
+# makes re-upserting the same day harmless.
 SYNC_INTERVAL_S = 60
-SYNC_WINDOW_HOURS = 4
 
 # How stale an operator's most-recent segment can be before they're no
 # longer counted as "currently logged in". There's no explicit logout

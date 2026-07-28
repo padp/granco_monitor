@@ -7,65 +7,68 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>Granco Saw Monitor</h1>
-    <span id="last-updated">-</span>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor</span>
+    <span id="last-updated" class="app-header-subtitle">-</span>
   </header>
 
-  <section id="status-card" class="card">
-    <div class="status-row">
-      <span id="state-badge" class="badge">UNKNOWN</span>
-      <span id="staffing-badge" class="badge">- staffing -</span>
-      <div class="status-details">
-        <div><strong>Part:</strong> <span id="part-number">-</span></div>
-        <div><strong>Last cut:</strong> <span id="last-cycle-ts">-</span></div>
-        <div><strong>Operators:</strong> <span id="staffing-operators">-</span></div>
+  <main>
+    <section id="status-card" class="card">
+      <div class="status-row">
+        <span id="state-badge" class="badge">UNKNOWN</span>
+        <span id="staffing-badge" class="badge">- staffing -</span>
+        <div class="status-details">
+          <div><strong>Part:</strong> <span id="part-number">-</span></div>
+          <div><strong>Last cut:</strong> <span id="last-cycle-ts">-</span></div>
+          <div><strong>Operators:</strong> <span id="staffing-operators">-</span></div>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="card card-wide">
-    <h2>Shift crew summary</h2>
-    <div id="shift-label" class="status-details" style="margin-bottom: 0.5rem;">-</div>
-    <div class="overflow-wrap">
-      <table id="shift-summary-table">
-        <thead>
-          <tr>
-            <th>Operator</th>
-            <th>Clocked Time</th>
-            <th>Production</th>
-            <th>Setup</th>
-            <th>Break</th>
-            <th>Idle</th>
-            <th>Other</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
+    <section class="card card-wide">
+      <h2>Shift Crew Summary</h2>
+      <div id="shift-label" class="status-details">-</div>
+      <div class="overflow-wrap">
+        <table id="shift-summary-table">
+          <thead>
+            <tr>
+              <th>Operator</th>
+              <th>Clocked Time</th>
+              <th>Production</th>
+              <th>Setup</th>
+              <th>Break</th>
+              <th>Idle</th>
+              <th>Other</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
 
-  <section class="card card-wide">
-    <h2>Recent cycles</h2>
-    <div class="overflow-wrap">
-      <table id="cycles-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Part</th>
-            <th>Cut #</th>
-            <th>Duration (s)</th>
-            <th>Theoretical (s)</th>
-            <th>Cut Length (in)</th>
-            <th>Backgauge Pos (in)</th>
-            <th>Parts</th>
-            <th>Trim Cut</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
+    <section class="card card-wide">
+      <h2>Recent Cycles</h2>
+      <div class="overflow-wrap">
+        <table id="cycles-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Part</th>
+              <th>Cut #</th>
+              <th>Duration (s)</th>
+              <th>Theoretical (s)</th>
+              <th>Cut Length (in)</th>
+              <th>Backgauge Pos (in)</th>
+              <th>Parts</th>
+              <th>Cut Type</th>
+              <th>Grade</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 
   <script src="app.js"></script>
 </body>

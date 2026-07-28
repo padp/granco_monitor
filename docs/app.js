@@ -82,6 +82,35 @@ async function refreshShiftSummary() {
   }
 }
 
+// Grade thresholds are actual/theoretical duration ratios, not a measured
+// standard - a starting heuristic to flag cuts worth a second look, same
+// spirit as this project's other not-yet-measured constants.
+const GRADE_THRESHOLDS = [
+  { max: 1.15, cls: "grade-green", label: "Great" },
+  { max: 1.4, cls: "grade-yellow", label: "Good" },
+  { max: 2.0, cls: "grade-orange", label: "Slow" },
+];
+
+function gradeCellHtml(cycle) {
+  // Trim/reload cycles aren't graded: their theoretical_duration_s only
+  // covers the blade stroke, not the reload/advance time (that term is
+  // deliberately left out server-side until it's actually measured - see
+  // collector/config.py's BACKGAUGE_RETURN_TIME_S), so comparing a trim
+  // cut's actual time against it would always look artificially bad.
+  if (cycle.is_trim_cut) return "-";
+
+  const actual = cycle.cycle_duration_s;
+  const theoretical = cycle.theoretical_duration_s;
+  if (actual === null || actual === undefined || !theoretical) return "-";
+
+  const ratio = actual / theoretical;
+  const match = GRADE_THRESHOLDS.find((t) => ratio <= t.max);
+  const { cls, label } = match || { cls: "grade-red", label: "Poor" };
+  return `<span class="grade-pill ${cls}" title="${ratio.toFixed(2)}x theoretical">
+    <span class="grade-dot"></span>${label}
+  </span>`;
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -90,6 +119,7 @@ async function refreshCycles() {
   tbody.innerHTML = "";
   for (const cycle of data.cycles || []) {
     const tr = document.createElement("tr");
+    if (cycle.is_trim_cut) tr.classList.add("trim-row");
     tr.innerHTML = `
       <td>${fmtTs(cycle.ts)}</td>
       <td>${cycle.part_number ?? "-"}</td>
@@ -99,7 +129,8 @@ async function refreshCycles() {
       <td>${fmtSeconds(cycle.cut_length)}</td>
       <td>${fmtSeconds(cycle.backgauge_position)}</td>
       <td>${cycle.parts_per_cut ?? "-"}</td>
-      <td>${cycle.is_trim_cut ? "Trim" : ""}</td>
+      <td>${cycle.is_trim_cut ? "Trim / Reload" : ""}</td>
+      <td>${gradeCellHtml(cycle)}</td>
     `;
     tbody.appendChild(tr);
   }
