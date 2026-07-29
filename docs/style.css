@@ -292,6 +292,33 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 .grade-orange { color: var(--grade-orange); }
 .grade-red { color: var(--grade-red); }
 
+/* The "+N" score readout next to each grade - styled like an arcade
+   combo popup (solid pill in the grade's own color) rather than a
+   plain number. Can't use background:currentColor here since this rule
+   itself overrides color to --color-surface - that would make
+   currentColor resolve to the same value and hide the text, so each
+   grade's background is set explicitly instead. */
+.grade-points {
+  font-weight: 800;
+  font-size: 0.75em;
+  padding: 0.05em 0.4em;
+  border-radius: 999px;
+  color: var(--color-surface);
+}
+.grade-green .grade-points { background: var(--grade-green); }
+.grade-yellow .grade-points { background: var(--grade-yellow); }
+.grade-orange .grade-points { background: var(--grade-orange); }
+.grade-red .grade-points { background: var(--grade-red); }
+
+@keyframes grade-fire-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+.grade-fire {
+  animation: grade-fire-pulse 1.4s ease-in-out infinite;
+}
+
 /* ------------------------------------------------------------ */
 /* Forms / schedule page                                          */
 /* ------------------------------------------------------------ */
@@ -453,4 +480,65 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
 .leaderboard-row.rank-1 {
   background: linear-gradient(135deg, var(--color-accent-soft), var(--color-bg));
   border: 1px solid var(--color-accent);
+}
+
+/* Utilization is a distinct question from the Grade leaderboard above
+   (uptime, not cut pace) - rendered as its own small ranked list of
+   meter bars rather than medals, so the two "rankings" read as
+   separate stats instead of blending into one score. */
+.leaderboard-divider {
+  margin: 0.9rem 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.75rem;
+}
+
+.utilization-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.utilization-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.utilization-shift {
+  flex: 0 0 6.5em;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.utilization-bar {
+  flex: 1 1 auto;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.utilization-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+.utilization-bar-fill.grade-green { background: var(--grade-green); }
+.utilization-bar-fill.grade-yellow { background: var(--grade-yellow); }
+.utilization-bar-fill.grade-orange { background: var(--grade-orange); }
+.utilization-bar-fill.grade-red { background: var(--grade-red); }
+.utilization-bar-fill.grade-unknown { background: var(--unknown); }
+
+.utilization-pct {
+  flex: 0 0 3em;
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.85rem;
 }

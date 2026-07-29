@@ -50,12 +50,50 @@ async function refreshStaffing() {
 
 // Grade thresholds are actual/theoretical duration ratios, not a measured
 // standard - a starting heuristic to flag cuts worth a second look, same
-// spirit as this project's other not-yet-measured constants.
-const GRADE_THRESHOLDS = [
-  { max: 1.15, cls: "grade-green", label: "Great" },
-  { max: 1.4, cls: "grade-yellow", label: "Good" },
-  { max: 2.0, cls: "grade-orange", label: "Slow" },
+// spirit as this project's other not-yet-measured constants. The four
+// base categories (Great/Good/Slow/Poor) and their color are fixed here;
+// the emoji/wording/points shown for each are entirely data-driven from
+// grade-flavors.json (see loadGradeFlavors below), so new flavor text
+// can be added there without touching this file.
+const GRADE_CATEGORIES = [
+  { max: 1.15, name: "Great", cls: "grade-green" },
+  { max: 1.4, name: "Good", cls: "grade-yellow" },
+  { max: 2.0, name: "Slow", cls: "grade-orange" },
 ];
+const POOR_CATEGORY = { name: "Poor", cls: "grade-red" };
+
+let gradeFlavors = null;
+
+async function loadGradeFlavors() {
+  const res = await fetch("grade-flavors.json");
+  gradeFlavors = await res.json();
+}
+
+// A simple stable hash (not Math.random()) so the same cut always shows
+// the same flavor variant across poll refreshes instead of visibly
+// reshuffling every few seconds - variety comes from different cuts
+// landing on different variants, not from one row flickering in place.
+function stableIndex(seed, length) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % length;
+}
+
+function categoryFor(ratio) {
+  return GRADE_CATEGORIES.find((c) => ratio <= c.max) || POOR_CATEGORY;
+}
+
+function flavorFor(categoryName, seed) {
+  const entry = gradeFlavors?.[categoryName];
+  const variants = entry?.variants;
+  if (!variants || !variants.length) {
+    return { emoji: "", text: categoryName, points: entry?.points ?? 0 };
+  }
+  const variant = variants[stableIndex(seed, variants.length)];
+  return { emoji: variant.emoji, text: variant.text, points: entry.points ?? 0 };
+}
 
 function gradeCellHtml(cycle) {
   // Trim/reload cycles aren't graded: their theoretical_duration_s only
@@ -70,10 +108,12 @@ function gradeCellHtml(cycle) {
   if (actual === null || actual === undefined || !theoretical) return "-";
 
   const ratio = actual / theoretical;
-  const match = GRADE_THRESHOLDS.find((t) => ratio <= t.max);
-  const { cls, label } = match || { cls: "grade-red", label: "Poor" };
-  return `<span class="grade-pill ${cls}" title="${ratio.toFixed(2)}x theoretical">
-    <span class="grade-dot"></span>${label}
+  const category = categoryFor(ratio);
+  const flavor = flavorFor(category.name, cycle.ts || "");
+  const fireClass = category.name === "Great" ? "grade-fire" : "";
+  return `<span class="grade-pill ${category.cls} ${fireClass}" title="${category.name} · ${ratio.toFixed(2)}x theoretical">
+    <span class="grade-dot"></span>${flavor.emoji} ${flavor.text}
+    <span class="grade-points">+${flavor.points}</span>
   </span>`;
 }
 
@@ -136,6 +176,27 @@ async function refreshLeaderboard() {
   });
 }
 
+async function refreshUtilization() {
+  const res = await fetch(`${API_BASE}/api/shifts/utilization`);
+  const data = await res.json();
+
+  const list = document.getElementById("utilization-list");
+  list.innerHTML = "";
+  for (const s of data.shifts || []) {
+    const li = document.createElement("li");
+    li.className = "utilization-row";
+    const cls = scoreClass(s.utilization_pct);
+    const pctText = s.utilization_pct === null || s.utilization_pct === undefined ? "-" : `${s.utilization_pct}%`;
+    const width = s.utilization_pct ?? 0;
+    li.innerHTML = `
+      <span class="utilization-shift">${s.shift}</span>
+      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${width}%"></div></div>
+      <span class="utilization-pct">${pctText}</span>
+    `;
+    list.appendChild(li);
+  }
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -169,6 +230,7 @@ async function refreshAll() {
       refreshStaffing(),
       refreshSchedule(),
       refreshLeaderboard(),
+      refreshUtilization(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;
@@ -177,5 +239,10 @@ async function refreshAll() {
   }
 }
 
-refreshAll();
-setInterval(refreshAll, POLL_INTERVAL_MS);
+async function init() {
+  await loadGradeFlavors();
+  refreshAll();
+  setInterval(refreshAll, POLL_INTERVAL_MS);
+}
+
+init();

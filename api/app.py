@@ -283,6 +283,55 @@ def shifts_leaderboard():
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
+@app.get("/api/shifts/utilization")
+def shifts_utilization():
+    """Uptime per shift: % of each shift's elapsed time over the
+    trailing week actually spent in the RUNNING state (state_events),
+    not cut pace - a different question from the Grade leaderboard
+    above (that's about how fast cuts go once running; this is about
+    whether the machine was running at all), kept as its own stat
+    rather than blended into one score, per the user's choice.
+
+    Each state_events segment is attributed wholly to whichever shift
+    its ts_start falls in - segments spanning a shift changeover aren't
+    split, a small approximation in the same spirit as this project's
+    other documented heuristics."""
+    db = get_db()
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+
+    events = db.state_events.find(
+        {"$or": [{"ts_end": {"$gte": window_start.isoformat()}}, {"ts_end": None}]},
+        projection={"_id": False, "ts_start": True, "ts_end": True, "state": True},
+    )
+
+    total_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    running_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    for event in events:
+        if not event.get("ts_start"):
+            continue
+        start = max(datetime.fromisoformat(event["ts_start"]), window_start)
+        end = min(datetime.fromisoformat(event["ts_end"]), now) if event.get("ts_end") else now
+        if end <= start:
+            continue
+
+        duration = (end - start).total_seconds()
+        shift = _shift_name_for((start.hour, start.minute))
+        total_seconds[shift] += duration
+        if event.get("state") == "RUNNING":
+            running_seconds[shift] += duration
+
+    shifts = []
+    for name in SHIFT_NAMES:
+        total = total_seconds[name]
+        pct = round(running_seconds[name] / total * 100) if total else None
+        shifts.append({"shift": name, "utilization_pct": pct})
+
+    shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
+
+    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+
+
 @app.get("/api/staffing/current")
 def staffing_current():
     """clocked_in_now comes straight from Plex's own "currently clocked

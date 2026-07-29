@@ -1,0 +1,35 @@
+{
+  "Great": {
+    "points": 100,
+    "variants": [
+      { "emoji": "🔥", "text": "ON FIRE" },
+      { "emoji": "🚀", "text": "Blazing" },
+      { "emoji": "⭐", "text": "Stellar" },
+      { "emoji": "💯", "text": "Perfect Pace" }
+    ]
+  },
+  "Good": {
+    "points": 50,
+    "variants": [
+      { "emoji": "⚡", "text": "Nice!" },
+      { "emoji": "✅", "text": "Solid" },
+      { "emoji": "👍", "text": "On Pace" }
+    ]
+  },
+  "Slow": {
+    "points": 10,
+    "variants": [
+      { "emoji": "🐢", "text": "Sluggish" },
+      { "emoji": "⏳", "text": "Dragging" },
+      { "emoji": "😬", "text": "Behind Pace" }
+    ]
+  },
+  "Poor": {
+    "points": 0,
+    "variants": [
+      { "emoji": "🥶", "text": "Cold" },
+      { "emoji": "🐌", "text": "Crawling" },
+      { "emoji": "💤", "text": "Snoozing" }
+    ]
+  }
+}
