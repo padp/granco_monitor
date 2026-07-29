@@ -197,6 +197,30 @@ async function refreshUtilization() {
   }
 }
 
+async function refreshEfficiency() {
+  const res = await fetch(`${API_BASE}/api/shifts/efficiency`);
+  const data = await res.json();
+
+  const list = document.getElementById("efficiency-list");
+  list.innerHTML = "";
+  for (const s of data.shifts || []) {
+    const li = document.createElement("li");
+    li.className = "utilization-row";
+    const cls = scoreClass(s.efficiency_pct);
+    const pctText = s.efficiency_pct === null || s.efficiency_pct === undefined ? "-" : `${s.efficiency_pct}%`;
+    // Efficiency can read over 100% (cuts ran faster than theoretical, or
+    // the two sources' time windows don't perfectly line up) - the bar
+    // fill is capped visually, but the text always shows the real number.
+    const width = Math.min(s.efficiency_pct ?? 0, 100);
+    li.innerHTML = `
+      <span class="utilization-shift">${s.shift}</span>
+      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${width}%"></div></div>
+      <span class="utilization-pct">${pctText}</span>
+    `;
+    list.appendChild(li);
+  }
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -230,6 +254,7 @@ async function refreshAll() {
       refreshSchedule(),
       refreshLeaderboard(),
       refreshUtilization(),
+      refreshEfficiency(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;

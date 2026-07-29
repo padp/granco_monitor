@@ -393,6 +393,80 @@ def shifts_utilization():
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
+@app.get("/api/shifts/efficiency")
+def shifts_efficiency():
+    """The "wasted time" question, distinct from both stats above:
+    Utilization asks whether the PLC was RUNNING; Grade asks how fast
+    cuts were once running; this asks how much of the time Plex says
+    the workcenter was in "Production" status actually went toward
+    cutting at theoretical pace - i.e. the OEE "Performance" factor.
+
+    efficiency_pct = (sum of theoretical_duration_s for actual non-trim
+    cuts in the shift) / (elapsed seconds where Plex Status ==
+    "Production") * 100. The gap between the two - production_seconds
+    minus theoretical_seconds - is wasted time: gaps between cuts, cuts
+    that ran long, or stretches with no cuts at all despite Plex saying
+    "Production". Can read over 100% if actual cuts ran faster than
+    theoretical on average, or if the two sources' time windows don't
+    perfectly line up - not clamped, since that's itself informative
+    rather than an error to hide.
+
+    "Production status" time comes from operator_segments, deduplicated
+    by log_key first - each WorkcenterLog row is exploded into one
+    segment per operator on it, so summing duration_s across all of
+    them would multiply by crew size instead of measuring elapsed
+    wall-clock time."""
+    db = get_db()
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+
+    segments = db.operator_segments.find(
+        {"end_ts": {"$gte": window_start.isoformat()}},
+        projection={"_id": False, "log_key": True, "start_ts": True, "duration_s": True, "status_category": True},
+    )
+    seen_log_keys = set()
+    production_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    for seg in segments:
+        log_key = seg.get("log_key")
+        if log_key is None or log_key in seen_log_keys:
+            continue
+        seen_log_keys.add(log_key)
+        if seg.get("status_category") != "production" or not seg.get("start_ts"):
+            continue
+        ts_dt = datetime.fromisoformat(seg["start_ts"])
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        production_seconds[shift] += seg.get("duration_s") or 0.0
+
+    cycles = db.cycles.find(
+        {"ts": {"$gte": window_start.isoformat()}, "is_trim_cut": {"$ne": 1}},
+        projection={"_id": False, "ts": True, "theoretical_duration_s": True},
+    )
+    theoretical_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    for cycle in cycles:
+        ts = cycle.get("ts")
+        theoretical = cycle.get("theoretical_duration_s")
+        if not ts or not theoretical:
+            continue
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        theoretical_seconds[shift] += theoretical
+
+    shifts = []
+    for name in SHIFT_NAMES:
+        prod = production_seconds[name]
+        pct = round(theoretical_seconds[name] / prod * 100) if prod else None
+        shifts.append({
+            "shift": name,
+            "efficiency_pct": pct,
+            "theoretical_seconds": theoretical_seconds[name],
+            "production_seconds": prod,
+        })
+
+    shifts.sort(key=lambda s: (s["efficiency_pct"] is None, -(s["efficiency_pct"] or 0)))
+
+    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+
+
 @app.get("/api/staffing/current")
 def staffing_current():
     """clocked_in_now comes straight from Plex's own "currently clocked
