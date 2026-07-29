@@ -20,6 +20,10 @@ function fmtPct(categoryPct, key) {
   return value === undefined ? "-" : `${value.toFixed(0)}%`;
 }
 
+function fmtNum(value) {
+  return value === null || value === undefined ? "-" : value;
+}
+
 async function refreshShiftSummary() {
   const res = await fetch(`${API_BASE}/api/shift/summary`);
   const data = await res.json();
@@ -40,6 +44,20 @@ async function refreshShiftSummary() {
       <td>${fmtPct(op.category_pct, "other")}</td>
     `;
     tbody.appendChild(tr);
+  }
+
+  const prodTbody = document.querySelector("#production-table tbody");
+  prodTbody.innerHTML = "";
+  for (const p of data.production_by_part || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${p.part_number}</td>
+      <td>${fmtNum(p.plc_pieces)}</td>
+      <td>${fmtNum(p.plc_cut_count)}</td>
+      <td>${fmtNum(p.plex_pieces)}</td>
+      <td>${fmtNum(p.plex_unit_count)}</td>
+    `;
+    prodTbody.appendChild(tr);
   }
 }
 

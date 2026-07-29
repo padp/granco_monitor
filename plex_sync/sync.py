@@ -1,7 +1,7 @@
-"""Sync loop: pull recent Plex WorkcenterLog rows (-> operator_segments,
-for the shift crew summary) and the current clocked-in roster (->
-clocked_in_now, for the real-time staffing check), and forward both to
-the cloud API.
+"""Sync loop: pull recent Plex WorkcenterLog rows (-> operator_segments
+for the shift crew summary, and -> production_events for the pieces-cut
+cross-check) and the current clocked-in roster (-> clocked_in_now, for
+the real-time staffing check), and forward all of it to the cloud API.
 
 Mirrors publisher/publisher.py's shape (loop, sleep, retry-next-tick on
 failure), but simpler - log_key+badge_no is already a stable idempotent
@@ -24,6 +24,7 @@ from publisher.config import load_api_config
 
 from . import config
 from .client import search_current_clocked_in, search_workcenter_logs
+from .production import rows_to_production_events
 from .roster import rows_to_roster
 from .segments import rows_to_segments
 from .storage import Storage
@@ -50,6 +51,9 @@ def sync_once(storage: Storage, api_url: str, api_key: str) -> tuple:
     segments = rows_to_segments(rows)
     storage.upsert_segments(segments)
 
+    production_events = rows_to_production_events(rows)
+    storage.upsert_production_events(production_events)
+
     clockedin_by_workcenter = {
         wc["WorkcenterKey"]: search_current_clocked_in(wc["WorkcenterKey"]) for wc in config.WORKCENTERS
     }
@@ -58,6 +62,8 @@ def sync_once(storage: Storage, api_url: str, api_key: str) -> tuple:
     payload = {"clocked_in_now": roster}
     if segments:
         payload["operator_segments"] = [{**seg, "source_id": f"{seg['log_key']}:{seg['badge_no']}"} for seg in segments]
+    if production_events:
+        payload["production_events"] = [{**e, "source_id": str(e["log_key"])} for e in production_events]
 
     response = requests.post(
         f"{api_url}/ingest",
@@ -67,7 +73,7 @@ def sync_once(storage: Storage, api_url: str, api_key: str) -> tuple:
     )
     response.raise_for_status()
 
-    return len(segments), len(roster)
+    return len(segments), len(production_events), len(roster)
 
 
 def run():
@@ -79,8 +85,11 @@ def run():
     try:
         while True:
             try:
-                segment_count, roster_count = sync_once(storage, api_url, api_key)
-                print(f"synced {segment_count} operator segments, {roster_count} currently clocked in")
+                segment_count, production_count, roster_count = sync_once(storage, api_url, api_key)
+                print(
+                    f"synced {segment_count} operator segments, {production_count} production events, "
+                    f"{roster_count} currently clocked in"
+                )
             except _RETRYABLE_ERRORS as exc:
                 print(f"sync error (will retry): {exc}")
             time.sleep(config.SYNC_INTERVAL_S)

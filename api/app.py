@@ -8,7 +8,7 @@ _require_session below.
 """
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
@@ -78,6 +78,22 @@ def _current_date_and_shift(now: datetime) -> tuple:
     else:
         label_date = now.date()
     return label_date.isoformat(), shift
+
+
+def _shift_window(date_str: str, shift_name: str) -> tuple:
+    """Inverse of _current_date_and_shift: given a (date, shift) key like
+    the ones shift_label produces, returns the concrete [start, end)
+    datetime window that shift actually spans - needed to filter cycles
+    by ts, since cycles doesn't store shift_label the way operator_segments
+    and production_events do. Third shift's label date is the date its
+    early-morning half falls on (see shift_label_date in
+    collector/shifts.py), so its window starts the *previous* day."""
+    d = date.fromisoformat(date_str)
+    if shift_name == "First Shift":
+        return datetime.combine(d, time(*_FIRST_START)), datetime.combine(d, time(*_SECOND_START))
+    if shift_name == "Second Shift":
+        return datetime.combine(d, time(*_SECOND_START)), datetime.combine(d, time(*_THIRD_START))
+    return datetime.combine(d - timedelta(days=1), time(*_THIRD_START)), datetime.combine(d, time(*_FIRST_START))
 
 
 if os.environ.get("SQL_PASS"):
@@ -185,7 +201,7 @@ def ingest():
     db = get_db()
     counts = {}
 
-    for table_name in ("cycles", "state_events", "operator_segments"):
+    for table_name in ("cycles", "state_events", "operator_segments", "production_events"):
         rows = body.get(table_name) or []
         if rows:
             db[table_name].bulk_write(
@@ -283,6 +299,51 @@ def shifts_leaderboard():
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
+@app.get("/api/shifts/production")
+def shifts_production():
+    """Total pieces cut per shift over the trailing week, straight from
+    the PLC-derived cycles the collector detects itself - summing each
+    non-trim cycle's own parts_per_cut (not a single constant times cut
+    count, so this stays correct even if different parts with different
+    parts_per_cut values were run in the same shift). Trim/reload cuts
+    are excluded - they're scrap, not saleable pieces (see
+    collector/detector.py's _emit_cycle, which already sets
+    parts_per_cut=0 for them, but the is_trim_cut filter is kept
+    explicit here too rather than relying on that being zero).
+
+    This is the PLC side of a two-source cross-check; the Plex side
+    (WorkcenterLog's ProductionCountComplete) isn't wired up yet - that
+    field looked like a per-job cumulative counter rather than a
+    per-row delta in the one real sample seen so far, so summing it
+    naively would overcount. Needs a fresh real-data check before it's
+    built, not a guess."""
+    db = get_db()
+    window_start = (datetime.now(PLANT_TZ) - timedelta(days=LEADERBOARD_WINDOW_DAYS)).replace(tzinfo=None)
+
+    cycles = db.cycles.find(
+        {"ts": {"$gte": window_start.isoformat()}, "is_trim_cut": {"$ne": 1}},
+        projection={"_id": False, "ts": True, "parts_per_cut": True},
+    )
+
+    totals = {name: {"pieces": 0, "cuts": 0} for name in SHIFT_NAMES}
+    for cycle in cycles:
+        ts = cycle.get("ts")
+        if not ts:
+            continue
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        totals[shift]["pieces"] += cycle.get("parts_per_cut") or 0
+        totals[shift]["cuts"] += 1
+
+    shifts = [
+        {"shift": name, "total_pieces": totals[name]["pieces"], "cut_count": totals[name]["cuts"]}
+        for name in SHIFT_NAMES
+    ]
+    shifts.sort(key=lambda s: -s["total_pieces"])
+
+    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+
+
 @app.get("/api/shifts/utilization")
 def shifts_utilization():
     """Uptime per shift: % of each shift's elapsed time over the
@@ -354,6 +415,83 @@ def staffing_current():
     )
 
 
+def _production_by_part(db, shift_label: str) -> list:
+    """Pieces cut per part number, from both sides of the cross-check:
+
+    PLC side - cycles doesn't store shift_label, so shift_label is parsed
+    back into a concrete [start, end) window via _shift_window (the
+    verified inverse of _current_date_and_shift) to filter cycles.ts.
+    Sums each non-trim cycle's own parts_per_cut, same reasoning as
+    /api/shifts/production.
+
+    Plex side - production_events DOES store shift_label directly (set
+    at ingest time from the same row that's converted to plant-local),
+    so it's a plain equality filter. Grouped by (part_no, serial_no),
+    taking max(production) per serial before summing per part - see
+    plex_sync/production.py's docstring for why (Production is per-unit,
+    not a per-row delta, and the real completed quantity isn't reliably
+    on any particular row in a serial's sequence).
+
+    Merged by part number - a known limitation, not yet solved: this
+    assumes the PLC's part_number and Plex's PartNo use matching
+    strings for the same physical part, which hasn't been cross-checked
+    against two live systems yet.
+    """
+    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
+    plc_by_part = {}
+    if date_str and shift_name in SHIFT_NAMES:
+        start, end = _shift_window(date_str, shift_name)
+        cycles = db.cycles.find(
+            {"ts": {"$gte": start.isoformat(), "$lt": end.isoformat()}, "is_trim_cut": {"$ne": 1}},
+            projection={"_id": False, "part_number": True, "parts_per_cut": True},
+        )
+        for cycle in cycles:
+            part = cycle.get("part_number")
+            if not part:
+                continue
+            entry = plc_by_part.setdefault(part, {"pieces": 0, "cuts": 0})
+            entry["pieces"] += cycle.get("parts_per_cut") or 0
+            entry["cuts"] += 1
+
+    plex_max_by_part_serial = {}
+    events = db.production_events.find(
+        {"shift_label": shift_label},
+        projection={"_id": False, "part_no": True, "serial_no": True, "production": True, "scrap": True},
+    )
+    for event in events:
+        part = event.get("part_no")
+        serial = event.get("serial_no")
+        if not part or not serial:
+            continue
+        by_serial = plex_max_by_part_serial.setdefault(part, {})
+        current = by_serial.setdefault(serial, {"production": 0.0, "scrap": 0.0})
+        current["production"] = max(current["production"], event.get("production") or 0.0)
+        current["scrap"] = max(current["scrap"], event.get("scrap") or 0.0)
+
+    plex_by_part = {}
+    for part, by_serial in plex_max_by_part_serial.items():
+        plex_by_part[part] = {
+            "pieces": sum(s["production"] for s in by_serial.values()),
+            "units": len(by_serial),
+            "scrap": sum(s["scrap"] for s in by_serial.values()),
+        }
+
+    all_parts = sorted(set(plc_by_part) | set(plex_by_part))
+    result = []
+    for part in all_parts:
+        plc = plc_by_part.get(part)
+        plex = plex_by_part.get(part)
+        result.append({
+            "part_number": part,
+            "plc_pieces": plc["pieces"] if plc else None,
+            "plc_cut_count": plc["cuts"] if plc else None,
+            "plex_pieces": plex["pieces"] if plex else None,
+            "plex_unit_count": plex["units"] if plex else None,
+            "plex_scrap": plex["scrap"] if plex else None,
+        })
+    return result
+
+
 @app.get("/api/shift/summary")
 def shift_summary():
     db = get_db()
@@ -363,7 +501,7 @@ def shift_summary():
         shift_label = latest["shift_label"] if latest else None
 
     if not shift_label:
-        return jsonify(shift_label=None, operators=[])
+        return jsonify(shift_label=None, operators=[], production_by_part=[])
 
     segments = list(db.operator_segments.find({"shift_label": shift_label}, projection={"_id": False}))
 
@@ -391,7 +529,11 @@ def shift_summary():
         })
     operators.sort(key=lambda o: o["total_seconds"], reverse=True)
 
-    return jsonify(shift_label=shift_label, operators=operators)
+    return jsonify(
+        shift_label=shift_label,
+        operators=operators,
+        production_by_part=_production_by_part(db, shift_label),
+    )
 
 
 def _schedule_doc(date: str, shift: str) -> dict:

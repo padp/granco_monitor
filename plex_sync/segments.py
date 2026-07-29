@@ -9,19 +9,13 @@ time and status mix should be derived, not treated as an instantaneous
 """
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 
 from collector.shifts import shift_label
 
 from . import config
+from .timeutil import to_plant_local_naive
 
 _EMPLOYEE_ROW_RE = re.compile(r"<row>.*?</row>", re.DOTALL)
-
-
-def _to_plant_local_naive(ts: str) -> datetime:
-    """Plex timestamps are ISO-8601 UTC with a trailing 'Z'."""
-    utc_dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
-    return utc_dt.astimezone(config.PLANT_TZ).replace(tzinfo=None)
 
 
 def _parse_employees(employee_name_xml: str) -> list:
@@ -50,8 +44,8 @@ def row_to_segments(row: dict) -> list:
     if not employees:
         return []
 
-    start_ts = _to_plant_local_naive(row["LogDate"])
-    end_ts = _to_plant_local_naive(row["EndTime"])
+    start_ts = to_plant_local_naive(row["LogDate"])
+    end_ts = to_plant_local_naive(row["EndTime"])
     duration_s = max((end_ts - start_ts).total_seconds(), 0.0)
     status = row.get("Status")
     status_category = config.STATUS_CATEGORY_MAP.get(status, "other")

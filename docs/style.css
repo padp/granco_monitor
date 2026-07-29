@@ -242,9 +242,11 @@ th, td {
 th {
   color: var(--color-text-muted);
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 tbody tr:last-child td { border-bottom: none; }
@@ -253,21 +255,24 @@ tbody tr:hover { background: var(--color-accent-soft); }
 .overflow-wrap { overflow-x: auto; }
 
 /* cycles-table gets fixed column widths (not the other tables - they
-   have different column counts) so the Grade pill's variable-length
-   emoji/flavor text can't blow out the column - and with it, the whole
-   table - the way auto layout would let it. Grade gets the most room;
-   its own content still truncates within that budget (see .grade-label
-   below) rather than ever forcing the column wider. */
+   have different column counts) so no cell's content - especially the
+   Grade pill's variable-length emoji/flavor text - can blow out its
+   column or the table the way auto layout would let it. overflow:hidden
+   on every th/td is a hard backstop: with table-layout:fixed, a header
+   label wider than its column would otherwise render past the column
+   boundary and visually collide with its neighbor instead of wrapping
+   cleanly or clipping. */
 #cycles-table { table-layout: fixed; }
-#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 13%; }
+#cycles-table th, #cycles-table td { overflow: hidden; }
+#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 15%; }
 #cycles-table th:nth-child(2), #cycles-table td:nth-child(2) { width: 10%; }
 #cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 6%; }
-#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 8%; }
-#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 9%; }
-#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 9%; }
+#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 10%; }
+#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 10%; }
+#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 10%; }
 #cycles-table th:nth-child(7), #cycles-table td:nth-child(7) { width: 6%; }
-#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 12%; }
-#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 27%; overflow: hidden; }
+#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 15%; }
+#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 18%; }
 
 /* Trim/reload cuts are a different kind of cycle (not comparable to a
    normal cut's timing), so they get a distinct color and tint rather
@@ -287,25 +292,26 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 0.4em;
+  gap: 0.3em;
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   overflow: hidden;
 }
 
 .grade-dot {
-  width: 0.6em;
-  height: 0.6em;
+  width: 0.5em;
+  height: 0.5em;
   border-radius: 50%;
   background: var(--unknown);
   flex: 0 0 auto;
 }
 
-/* The emoji+flavor text is the one part that shrinks/truncates if the
-   column runs out of room - the dot and points badge (flex: 0 0 auto
-   below) always stay fully visible. */
+/* The emoji+flavor text shrinks/truncates if the column runs out of
+   room, but must NOT grow (flex-grow: 0) - growing to fill the row
+   would push .grade-points away from it, opening a visible gap between
+   the label and the score badge instead of keeping them snug together. */
 .grade-label {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -331,8 +337,8 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 .grade-points {
   flex: 0 0 auto;
   font-weight: 800;
-  font-size: 0.75em;
-  padding: 0.05em 0.4em;
+  font-size: 0.7em;
+  padding: 0.05em 0.35em;
   border-radius: 999px;
   color: var(--color-surface);
 }
