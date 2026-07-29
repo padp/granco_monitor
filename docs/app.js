@@ -213,7 +213,6 @@ async function refreshCycles() {
       <td>${fmtSeconds(cycle.cycle_duration_s)}</td>
       <td>${fmtSeconds(cycle.theoretical_duration_s)}</td>
       <td>${fmtSeconds(cycle.cut_length)}</td>
-      <td>${fmtSeconds(cycle.backgauge_position)}</td>
       <td>${cycle.parts_per_cut ?? "-"}</td>
       <td>${cycle.is_trim_cut ? "Trim / Reload" : ""}</td>
       <td>${gradeCellHtml(cycle)}</td>
