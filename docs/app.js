@@ -112,7 +112,7 @@ function gradeCellHtml(cycle) {
   const flavor = flavorFor(category.name, cycle.ts || "");
   const fireClass = category.name === "Great" ? "grade-fire" : "";
   return `<span class="grade-pill ${category.cls} ${fireClass}" title="${category.name} · ${ratio.toFixed(2)}x theoretical">
-    <span class="grade-dot"></span>${flavor.emoji} ${flavor.text}
+    <span class="grade-dot"></span><span class="grade-label">${flavor.emoji} ${flavor.text}</span>
     <span class="grade-points">+${flavor.points}</span>
   </span>`;
 }

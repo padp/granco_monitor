@@ -252,6 +252,23 @@ tbody tr:hover { background: var(--color-accent-soft); }
 
 .overflow-wrap { overflow-x: auto; }
 
+/* cycles-table gets fixed column widths (not the other tables - they
+   have different column counts) so the Grade pill's variable-length
+   emoji/flavor text can't blow out the column - and with it, the whole
+   table - the way auto layout would let it. Grade gets the most room;
+   its own content still truncates within that budget (see .grade-label
+   below) rather than ever forcing the column wider. */
+#cycles-table { table-layout: fixed; }
+#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 13%; }
+#cycles-table th:nth-child(2), #cycles-table td:nth-child(2) { width: 10%; }
+#cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 6%; }
+#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 8%; }
+#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 9%; }
+#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 9%; }
+#cycles-table th:nth-child(7), #cycles-table td:nth-child(7) { width: 6%; }
+#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 12%; }
+#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 27%; overflow: hidden; }
+
 /* Trim/reload cuts are a different kind of cycle (not comparable to a
    normal cut's timing), so they get a distinct color and tint rather
    than blending into the normal-cut rows above/below them. */
@@ -267,11 +284,13 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 /* ------------------------------------------------------------ */
 
 .grade-pill {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   align-items: center;
   gap: 0.4em;
   font-weight: 600;
   font-size: 0.8rem;
+  overflow: hidden;
 }
 
 .grade-dot {
@@ -280,6 +299,17 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
   border-radius: 50%;
   background: var(--unknown);
   flex: 0 0 auto;
+}
+
+/* The emoji+flavor text is the one part that shrinks/truncates if the
+   column runs out of room - the dot and points badge (flex: 0 0 auto
+   below) always stay fully visible. */
+.grade-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .grade-green .grade-dot { background: var(--grade-green); }
@@ -299,6 +329,7 @@ tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
    currentColor resolve to the same value and hide the text, so each
    grade's background is set explicitly instead. */
 .grade-points {
+  flex: 0 0 auto;
   font-weight: 800;
   font-size: 0.75em;
   padding: 0.05em 0.4em;
