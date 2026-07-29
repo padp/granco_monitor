@@ -24,6 +24,13 @@ function fmtNum(value) {
   return value === null || value === undefined ? "-" : value;
 }
 
+function fmtTimeWindow(startIso, endIso) {
+  if (!startIso) return "-";
+  const start = new Date(startIso).toLocaleTimeString();
+  if (!endIso || endIso === startIso) return start;
+  return `${start} - ${new Date(endIso).toLocaleTimeString()}`;
+}
+
 async function refreshShiftSummary() {
   const res = await fetch(`${API_BASE}/api/shift/summary`);
   const data = await res.json();
@@ -51,11 +58,13 @@ async function refreshShiftSummary() {
   for (const p of data.production_by_part || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${p.part_number}</td>
+      <td>${fmtTimeWindow(p.window_start, p.window_end)}</td>
+      <td>${p.input_part ?? "-"}</td>
+      <td>${p.output_part ?? "-"}</td>
       <td>${fmtNum(p.plc_pieces)}</td>
       <td>${fmtNum(p.plc_cut_count)}</td>
       <td>${fmtNum(p.plex_pieces)}</td>
-      <td>${fmtNum(p.plex_unit_count)}</td>
+      <td>${fmtNum(p.plex_event_count)}</td>
     `;
     prodTbody.appendChild(tr);
   }

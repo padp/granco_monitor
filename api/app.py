@@ -415,80 +415,122 @@ def staffing_current():
     )
 
 
+def _detect_runs(items: list, ts_key: str, part_key: str) -> list:
+    """Groups chronologically-sorted items into contiguous same-part runs
+    - a maximal stretch where part_key doesn't change between consecutive
+    items. items must already be sorted by ts_key ascending."""
+    runs = []
+    current = None
+    for item in items:
+        part = item.get(part_key)
+        if current is None or part != current["part"]:
+            current = {"part": part, "start": item[ts_key], "end": item[ts_key], "items": [item]}
+            runs.append(current)
+        else:
+            current["end"] = item[ts_key]
+            current["items"].append(item)
+    return runs
+
+
 def _production_by_part(db, shift_label: str) -> list:
-    """Pieces cut per part number, from both sides of the cross-check:
+    """Pieces cut, cross-checked between the PLC and Plex - matched by
+    overlapping time windows, NOT by part number string equality. The
+    PLC's part_number is the input extrusion part (e.g. "1412X-23") and
+    Plex's PartNo is the output saw part (e.g. "1412S-23") - different
+    numbering schemes for the same physical material at different
+    processing stages, confirmed by the user, so they will never match
+    as strings (an earlier version tried exactly that and could never
+    have produced a real match).
+
+    Both sides get grouped into contiguous "runs" (a maximal stretch of
+    chronologically-sorted rows sharing the same part), then runs whose
+    time windows overlap are paired into one row - this is what actually
+    answers "what came in vs what went out during the same span of
+    time," which a plain per-part total comparison can't, since the two
+    systems literally track different part identities.
 
     PLC side - cycles doesn't store shift_label, so shift_label is parsed
     back into a concrete [start, end) window via _shift_window (the
     verified inverse of _current_date_and_shift) to filter cycles.ts.
-    Sums each non-trim cycle's own parts_per_cut, same reasoning as
-    /api/shifts/production.
 
-    Plex side - production_events DOES store shift_label directly (set
-    at ingest time from the same row that's converted to plant-local),
-    so it's a plain equality filter. Grouped by (part_no, serial_no),
-    taking max(production) per serial before summing per part - see
-    plex_sync/production.py's docstring for why (Production is per-unit,
-    not a per-row delta, and the real completed quantity isn't reliably
-    on any particular row in a serial's sequence).
-
-    Merged by part number - a known limitation, not yet solved: this
-    assumes the PLC's part_number and Plex's PartNo use matching
-    strings for the same physical part, which hasn't been cross-checked
-    against two live systems yet.
+    Plex side - production_events stores shift_label directly (set at
+    ingest time), so it's a plain equality filter. Production is summed
+    per event (deduplicated only by log_key, already guaranteed unique),
+    NOT max'd per SerialNo - see plex_sync/production.py's docstring for
+    why (SerialNo tracks a job/lot that can accumulate multiple real
+    completions, confirmed against real data the user found: 7 rows
+    sharing one SerialNo, each independently recording 192 pieces, true
+    total 1344 not 192).
     """
+    plc_events = []
     date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
-    plc_by_part = {}
     if date_str and shift_name in SHIFT_NAMES:
         start, end = _shift_window(date_str, shift_name)
         cycles = db.cycles.find(
             {"ts": {"$gte": start.isoformat(), "$lt": end.isoformat()}, "is_trim_cut": {"$ne": 1}},
-            projection={"_id": False, "part_number": True, "parts_per_cut": True},
+            projection={"_id": False, "ts": True, "part_number": True, "parts_per_cut": True},
+            sort=[("ts", 1)],
         )
-        for cycle in cycles:
-            part = cycle.get("part_number")
-            if not part:
-                continue
-            entry = plc_by_part.setdefault(part, {"pieces": 0, "cuts": 0})
-            entry["pieces"] += cycle.get("parts_per_cut") or 0
-            entry["cuts"] += 1
+        plc_events = list(cycles)
 
-    plex_max_by_part_serial = {}
-    events = db.production_events.find(
-        {"shift_label": shift_label},
-        projection={"_id": False, "part_no": True, "serial_no": True, "production": True, "scrap": True},
+    plex_events = list(
+        db.production_events.find(
+            {"shift_label": shift_label},
+            projection={"_id": False, "ts": True, "part_no": True, "production": True, "scrap": True},
+            sort=[("ts", 1)],
+        )
     )
-    for event in events:
-        part = event.get("part_no")
-        serial = event.get("serial_no")
-        if not part or not serial:
-            continue
-        by_serial = plex_max_by_part_serial.setdefault(part, {})
-        current = by_serial.setdefault(serial, {"production": 0.0, "scrap": 0.0})
-        current["production"] = max(current["production"], event.get("production") or 0.0)
-        current["scrap"] = max(current["scrap"], event.get("scrap") or 0.0)
 
-    plex_by_part = {}
-    for part, by_serial in plex_max_by_part_serial.items():
-        plex_by_part[part] = {
-            "pieces": sum(s["production"] for s in by_serial.values()),
-            "units": len(by_serial),
-            "scrap": sum(s["scrap"] for s in by_serial.values()),
-        }
+    plc_runs = _detect_runs(plc_events, "ts", "part_number")
+    for run in plc_runs:
+        run["pieces"] = sum(i.get("parts_per_cut") or 0 for i in run["items"])
+        run["cut_count"] = len(run["items"])
 
-    all_parts = sorted(set(plc_by_part) | set(plex_by_part))
+    plex_runs = _detect_runs(plex_events, "ts", "part_no")
+    for run in plex_runs:
+        run["pieces"] = sum(i.get("production") or 0.0 for i in run["items"])
+        run["scrap"] = sum(i.get("scrap") or 0.0 for i in run["items"])
+        run["event_count"] = len(run["items"])
+
+    matched_plex_ids = set()
     result = []
-    for part in all_parts:
-        plc = plc_by_part.get(part)
-        plex = plex_by_part.get(part)
+    for plc_run in plc_runs:
+        overlaps = [
+            plex_run
+            for plex_run in plex_runs
+            if plc_run["start"] <= plex_run["end"] and plex_run["start"] <= plc_run["end"]
+        ]
+        if not overlaps:
+            result.append({
+                "window_start": plc_run["start"], "window_end": plc_run["end"],
+                "input_part": plc_run["part"], "output_part": None,
+                "plc_pieces": plc_run["pieces"], "plc_cut_count": plc_run["cut_count"],
+                "plex_pieces": None, "plex_event_count": None, "plex_scrap": None,
+            })
+            continue
+        for plex_run in overlaps:
+            matched_plex_ids.add(id(plex_run))
+            result.append({
+                "window_start": min(plc_run["start"], plex_run["start"]),
+                "window_end": max(plc_run["end"], plex_run["end"]),
+                "input_part": plc_run["part"], "output_part": plex_run["part"],
+                "plc_pieces": plc_run["pieces"], "plc_cut_count": plc_run["cut_count"],
+                "plex_pieces": plex_run["pieces"], "plex_event_count": plex_run["event_count"],
+                "plex_scrap": plex_run["scrap"],
+            })
+
+    for plex_run in plex_runs:
+        if id(plex_run) in matched_plex_ids:
+            continue
         result.append({
-            "part_number": part,
-            "plc_pieces": plc["pieces"] if plc else None,
-            "plc_cut_count": plc["cuts"] if plc else None,
-            "plex_pieces": plex["pieces"] if plex else None,
-            "plex_unit_count": plex["units"] if plex else None,
-            "plex_scrap": plex["scrap"] if plex else None,
+            "window_start": plex_run["start"], "window_end": plex_run["end"],
+            "input_part": None, "output_part": plex_run["part"],
+            "plc_pieces": None, "plc_cut_count": None,
+            "plex_pieces": plex_run["pieces"], "plex_event_count": plex_run["event_count"],
+            "plex_scrap": plex_run["scrap"],
         })
+
+    result.sort(key=lambda r: r["window_start"])
     return result
 
 

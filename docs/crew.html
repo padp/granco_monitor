@@ -38,17 +38,19 @@
     </section>
 
     <section class="card card-wide">
-      <h2>Pieces Cut by Part</h2>
-      <div class="status-details" style="margin-bottom: 0.5rem;">PLC (saw-detected) vs Plex (WorkcenterLog) - a cross-check, not always expected to match exactly.</div>
+      <h2>Pieces Cut: Input vs Output</h2>
+      <div class="status-details" style="margin-bottom: 0.5rem;">PLC (input/extrusion part, saw-detected) vs Plex (output/saw part, WorkcenterLog) - matched by overlapping time windows, since the two systems use different part numbers for the same material at different stages.</div>
       <div class="overflow-wrap">
         <table id="production-table">
           <thead>
             <tr>
-              <th>Part Number</th>
+              <th>Time Window</th>
+              <th>Input Part</th>
+              <th>Output Part</th>
               <th>PLC Pieces</th>
               <th>PLC Cuts</th>
               <th>Plex Pieces</th>
-              <th>Plex Units</th>
+              <th>Plex Events</th>
             </tr>
           </thead>
           <tbody></tbody>

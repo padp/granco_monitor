@@ -1,20 +1,27 @@
-"""Extract per-unit production quantities from raw Plex WorkcenterLog rows.
+"""Extract per-event production quantities from raw Plex WorkcenterLog rows.
 
 Verified against a real sample (workcenter_log_sample.json) rather than
 guessed: rows with Description == "Production Recorded" always have a
 non-null Production and SerialNo. Production is NOT cumulative (it drops
-back to 0.0 repeatedly rather than only increasing), but the same
-SerialNo (one physical unit/rack) shows up across several rows as it's
-tracked, sitting at 0.0 on most of them with the real completed quantity
-on exactly one row in the sequence - not reliably the first or last one
-chronologically. The correct total is therefore max(Production) per
-distinct SerialNo, summed across serials - not a raw sum of every row
-(that would badly overcount) and not "the last row" (the real value
-isn't reliably last).
+back to 0.0 repeatedly rather than only increasing) - it's a per-event
+delta, meant to be summed across every row (deduplicated only by
+log_key, already guaranteed unique), NOT max'd per SerialNo.
+
+An earlier version of this aggregation grouped by SerialNo and took the
+max, assuming SerialNo meant "one physical unit" and repeated rows were
+just re-reads of the same completion. That was wrong, confirmed against
+real data: the user found 7 rows sharing one SerialNo, each
+independently recording 192 pieces for a true total of 1344, not 192 -
+and the same pattern already existed, unnoticed, in this file's own
+original sample (two serials each had two genuinely distinct nonzero
+readings that max-per-serial silently undercounted). SerialNo tracks a
+job/lot that can accumulate multiple real completions over its
+lifetime, not a single physical rack. See api/app.py's
+_production_by_part for the (corrected) plain-sum aggregation.
 
 Unlike operator_segments, this is NOT exploded per-operator - a
-production/rack-completion event belongs to the row itself, not to
-whichever crew members happened to be listed on it.
+production-recorded event belongs to the row itself, not to whichever
+crew members happened to be listed on it.
 """
 from collector.shifts import shift_label
 
