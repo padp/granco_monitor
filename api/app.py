@@ -259,7 +259,12 @@ def forgot_password():
                 f"Click the link below to set a new password. This link expires in 1 hour.\n\n{reset_link}",
             )
         except (smtplib.SMTPException, OSError) as exc:
-            print(f"forgot-password: failed to send email to {email}: {exc}")
+            # flush=True: print() is block-buffered (not line-buffered)
+            # when stdout isn't a real terminal, which is exactly the
+            # case running under gunicorn on Render - without this the
+            # error is genuinely being caught, just sitting unflushed
+            # instead of reaching the logs.
+            print(f"forgot-password: failed to send email to {email}: {exc}", flush=True)
 
     return jsonify(_FORGOT_PASSWORD_GENERIC_RESPONSE)
 
