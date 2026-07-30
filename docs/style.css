@@ -509,6 +509,16 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
   font-size: 1rem;
 }
 
+/* score is now a 75% efficiency / 25% grade blend - shown small
+   underneath the shift name so the combined number stays legible at a
+   glance without hiding what it's made of. */
+.leaderboard-breakdown {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  margin-top: 0.15rem;
+}
+
 .leaderboard-score {
   font-weight: 800;
   font-size: 1.3rem;

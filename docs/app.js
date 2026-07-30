@@ -167,9 +167,14 @@ async function refreshLeaderboard() {
     const li = document.createElement("li");
     li.className = `leaderboard-row ${i === 0 ? "rank-1" : ""}`;
     const scoreText = s.score === null || s.score === undefined ? "no data" : `${s.score}%`;
+    const effText = s.efficiency_pct === null || s.efficiency_pct === undefined ? "-" : `${s.efficiency_pct}%`;
+    const gradeText = s.grade_score === null || s.grade_score === undefined ? "-" : `${s.grade_score}%`;
     li.innerHTML = `
       <span class="leaderboard-medal">${MEDALS[i] || ""}</span>
-      <span class="leaderboard-shift">${s.shift}</span>
+      <span class="leaderboard-shift">
+        ${s.shift}
+        <div class="leaderboard-breakdown">eff ${effText} &middot; grade ${gradeText}</div>
+      </span>
       <span class="leaderboard-score ${scoreClass(s.score)}">${scoreText}</span>
     `;
     list.appendChild(li);
@@ -188,30 +193,6 @@ async function refreshUtilization() {
     const cls = scoreClass(s.utilization_pct);
     const pctText = s.utilization_pct === null || s.utilization_pct === undefined ? "-" : `${s.utilization_pct}%`;
     const width = s.utilization_pct ?? 0;
-    li.innerHTML = `
-      <span class="utilization-shift">${s.shift}</span>
-      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${width}%"></div></div>
-      <span class="utilization-pct">${pctText}</span>
-    `;
-    list.appendChild(li);
-  }
-}
-
-async function refreshEfficiency() {
-  const res = await fetch(`${API_BASE}/api/shifts/efficiency`);
-  const data = await res.json();
-
-  const list = document.getElementById("efficiency-list");
-  list.innerHTML = "";
-  for (const s of data.shifts || []) {
-    const li = document.createElement("li");
-    li.className = "utilization-row";
-    const cls = scoreClass(s.efficiency_pct);
-    const pctText = s.efficiency_pct === null || s.efficiency_pct === undefined ? "-" : `${s.efficiency_pct}%`;
-    // Efficiency can read over 100% (cuts ran faster than theoretical, or
-    // the two sources' time windows don't perfectly line up) - the bar
-    // fill is capped visually, but the text always shows the real number.
-    const width = Math.min(s.efficiency_pct ?? 0, 100);
     li.innerHTML = `
       <span class="utilization-shift">${s.shift}</span>
       <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${width}%"></div></div>
@@ -254,7 +235,6 @@ async function refreshAll() {
       refreshSchedule(),
       refreshLeaderboard(),
       refreshUtilization(),
-      refreshEfficiency(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;

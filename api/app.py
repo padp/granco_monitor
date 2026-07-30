@@ -247,21 +247,45 @@ def cycles_recent():
 
 @app.get("/api/shifts/leaderboard")
 def shifts_leaderboard():
-    """Ranks the three shifts by what percentage of this week's cuts
-    graded Great or Good (see docs/app.js's per-cut Grade column - same
-    ratio bands, just rolled up to a weekly score instead of shown per
-    row). Trim/reload cuts are excluded, same reasoning as the Grade
-    column: their theoretical_duration_s doesn't cover the reload time,
-    so comparing them would always look artificially bad."""
+    """Ranks the three shifts by a blended weekly score - 75% efficiency,
+    25% grade, per the user's explicit weighting (efficiency is the
+    primary signal; grade is a secondary modifier, no longer its own
+    separate medal ranking). The two components:
+
+    - efficiency_pct: the OEE "Performance" factor - (sum of
+      theoretical_duration_s for actual non-trim cuts in the shift) /
+      (elapsed seconds where Plex Status == "Production") * 100. Can
+      read over 100% if actual cuts ran faster than theoretical on
+      average, or if the two sources' time windows don't perfectly line
+      up - not clamped, since that's itself informative rather than an
+      error to hide. "Production status" time comes from
+      operator_segments, deduplicated by log_key first - each
+      WorkcenterLog row is exploded into one segment per operator on
+      it, so summing duration_s across all of them would multiply by
+      crew size instead of measuring elapsed wall-clock time.
+    - grade_score: what percentage of this week's cuts graded Great or
+      Good (see docs/app.js's per-cut Grade column - same ratio bands,
+      just rolled up to a weekly score instead of shown per row).
+
+    If only one component has data for a shift, that one is used alone
+    rather than treating the missing side as zero. Trim/reload cuts are
+    excluded from both, same reasoning as the Grade column throughout
+    this file: their theoretical_duration_s doesn't cover the reload
+    time, so comparing them would always look artificially bad.
+
+    Utilization (is the PLC running at all) stays a separate, unblended
+    stat - a different question again, kept apart per the user's
+    earlier choice (see shifts_utilization)."""
     db = get_db()
-    window_start = (datetime.now(PLANT_TZ) - timedelta(days=LEADERBOARD_WINDOW_DAYS)).replace(tzinfo=None)
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
 
     cycles = db.cycles.find(
         {"ts": {"$gte": window_start.isoformat()}, "is_trim_cut": {"$ne": 1}},
         projection={"_id": False, "ts": True, "cycle_duration_s": True, "theoretical_duration_s": True},
     )
-
     tallies = {name: {"graded": 0, "great_or_good": 0} for name in SHIFT_NAMES}
+    theoretical_seconds = {name: 0.0 for name in SHIFT_NAMES}
     for cycle in cycles:
         ts = cycle.get("ts")
         actual = cycle.get("cycle_duration_s")
@@ -275,12 +299,47 @@ def shifts_leaderboard():
         tallies[shift]["graded"] += 1
         if ratio <= GRADE_GOOD_MAX:
             tallies[shift]["great_or_good"] += 1
+        theoretical_seconds[shift] += theoretical
+
+    segments = db.operator_segments.find(
+        {"end_ts": {"$gte": window_start.isoformat()}},
+        projection={"_id": False, "log_key": True, "start_ts": True, "duration_s": True, "status_category": True},
+    )
+    seen_log_keys = set()
+    production_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    for seg in segments:
+        log_key = seg.get("log_key")
+        if log_key is None or log_key in seen_log_keys:
+            continue
+        seen_log_keys.add(log_key)
+        if seg.get("status_category") != "production" or not seg.get("start_ts"):
+            continue
+        ts_dt = datetime.fromisoformat(seg["start_ts"])
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        production_seconds[shift] += seg.get("duration_s") or 0.0
 
     shifts = []
     for name in SHIFT_NAMES:
         graded = tallies[name]["graded"]
-        score = round(tallies[name]["great_or_good"] / graded * 100) if graded else None
-        shifts.append({"shift": name, "score": score, "graded_count": graded})
+        grade_score = round(tallies[name]["great_or_good"] / graded * 100) if graded else None
+
+        prod = production_seconds[name]
+        efficiency_pct = round(theoretical_seconds[name] / prod * 100) if prod else None
+
+        if efficiency_pct is None:
+            score = grade_score
+        elif grade_score is None:
+            score = efficiency_pct
+        else:
+            score = round(0.75 * efficiency_pct + 0.25 * grade_score)
+
+        shifts.append({
+            "shift": name,
+            "score": score,
+            "efficiency_pct": efficiency_pct,
+            "grade_score": grade_score,
+            "graded_count": graded,
+        })
 
     shifts.sort(key=lambda s: (s["score"] is None, -(s["score"] or 0)))
 
@@ -377,80 +436,6 @@ def shifts_utilization():
         shifts.append({"shift": name, "utilization_pct": pct})
 
     shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
-
-    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
-
-
-@app.get("/api/shifts/efficiency")
-def shifts_efficiency():
-    """The "wasted time" question, distinct from both stats above:
-    Utilization asks whether the PLC was RUNNING; Grade asks how fast
-    cuts were once running; this asks how much of the time Plex says
-    the workcenter was in "Production" status actually went toward
-    cutting at theoretical pace - i.e. the OEE "Performance" factor.
-
-    efficiency_pct = (sum of theoretical_duration_s for actual non-trim
-    cuts in the shift) / (elapsed seconds where Plex Status ==
-    "Production") * 100. The gap between the two - production_seconds
-    minus theoretical_seconds - is wasted time: gaps between cuts, cuts
-    that ran long, or stretches with no cuts at all despite Plex saying
-    "Production". Can read over 100% if actual cuts ran faster than
-    theoretical on average, or if the two sources' time windows don't
-    perfectly line up - not clamped, since that's itself informative
-    rather than an error to hide.
-
-    "Production status" time comes from operator_segments, deduplicated
-    by log_key first - each WorkcenterLog row is exploded into one
-    segment per operator on it, so summing duration_s across all of
-    them would multiply by crew size instead of measuring elapsed
-    wall-clock time."""
-    db = get_db()
-    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
-    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
-
-    segments = db.operator_segments.find(
-        {"end_ts": {"$gte": window_start.isoformat()}},
-        projection={"_id": False, "log_key": True, "start_ts": True, "duration_s": True, "status_category": True},
-    )
-    seen_log_keys = set()
-    production_seconds = {name: 0.0 for name in SHIFT_NAMES}
-    for seg in segments:
-        log_key = seg.get("log_key")
-        if log_key is None or log_key in seen_log_keys:
-            continue
-        seen_log_keys.add(log_key)
-        if seg.get("status_category") != "production" or not seg.get("start_ts"):
-            continue
-        ts_dt = datetime.fromisoformat(seg["start_ts"])
-        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
-        production_seconds[shift] += seg.get("duration_s") or 0.0
-
-    cycles = db.cycles.find(
-        {"ts": {"$gte": window_start.isoformat()}, "is_trim_cut": {"$ne": 1}},
-        projection={"_id": False, "ts": True, "theoretical_duration_s": True},
-    )
-    theoretical_seconds = {name: 0.0 for name in SHIFT_NAMES}
-    for cycle in cycles:
-        ts = cycle.get("ts")
-        theoretical = cycle.get("theoretical_duration_s")
-        if not ts or not theoretical:
-            continue
-        ts_dt = datetime.fromisoformat(ts)
-        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
-        theoretical_seconds[shift] += theoretical
-
-    shifts = []
-    for name in SHIFT_NAMES:
-        prod = production_seconds[name]
-        pct = round(theoretical_seconds[name] / prod * 100) if prod else None
-        shifts.append({
-            "shift": name,
-            "efficiency_pct": pct,
-            "theoretical_seconds": theoretical_seconds[name],
-            "production_seconds": prod,
-        })
-
-    shifts.sort(key=lambda s: (s["efficiency_pct"] is None, -(s["efficiency_pct"] or 0)))
 
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
