@@ -9,6 +9,7 @@ _require_session below.
 import os
 import secrets
 import smtplib
+import socket
 from datetime import date, datetime, time, timedelta
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
@@ -19,6 +20,23 @@ from pymongo import UpdateOne
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import ensure_indexes, get_db
+
+# Render's network appears to lack an outbound IPv6 route: connecting to
+# smtp.gmail.com (which has both an IPv4 and IPv6 address) failed with
+# "Network is unreachable" (errno 101), even with valid credentials -
+# the classic symptom of Python picking the (here, unreachable) IPv6
+# address first. Forcing AF_INET makes every outbound connection in this
+# process resolve to IPv4 only - safe here, since both MongoDB Atlas and
+# Gmail fully support IPv4, and it's simpler than a one-off fix scoped
+# to just the SMTP call.
+_original_getaddrinfo = socket.getaddrinfo
+
+
+def _force_ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
+socket.getaddrinfo = _force_ipv4_getaddrinfo
 
 app = Flask(__name__)
 CORS(app)
