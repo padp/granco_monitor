@@ -74,6 +74,19 @@ async function refreshShiftSummary() {
     tbody.appendChild(tr);
   }
 
+  const clockinTbody = document.querySelector("#clockin-sessions-table tbody");
+  clockinTbody.innerHTML = "";
+  for (const cs of data.clockin_sessions || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${cs.employee_name ?? "-"}</td>
+      <td>${fmtTs(cs.clockin_ts)}</td>
+      <td>${cs.still_clocked_in ? "still clocked in" : fmtTs(cs.clockout_ts)}</td>
+      <td>${fmtHMS(cs.duration_seconds)}</td>
+    `;
+    clockinTbody.appendChild(tr);
+  }
+
   const prodTbody = document.querySelector("#production-table tbody");
   prodTbody.innerHTML = "";
   for (const p of data.production_by_part || []) {

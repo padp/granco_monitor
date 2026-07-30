@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS production_events (
     shift_label TEXT,
     workcenter_code TEXT
 );
+
+CREATE TABLE IF NOT EXISTS clockin_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clockin_key INTEGER NOT NULL UNIQUE,
+    plexus_user_no INTEGER,
+    employee_name TEXT,
+    workcenter_key INTEGER,
+    workcenter_code TEXT,
+    clockin_ts TEXT NOT NULL,
+    last_seen_ts TEXT NOT NULL,
+    clockout_ts TEXT,
+    open INTEGER NOT NULL DEFAULT 1,
+    shift_label TEXT
+);
 """
 
 _SEGMENT_COLUMNS = (
@@ -54,6 +68,11 @@ _SEGMENT_COLUMNS = (
 _PRODUCTION_COLUMNS = (
     "log_key", "part_no", "job_no", "serial_no", "production", "scrap", "ts",
     "shift_label", "workcenter_code",
+)
+
+_CLOCKIN_SESSION_COLUMNS = (
+    "clockin_key", "plexus_user_no", "employee_name", "workcenter_key", "workcenter_code",
+    "clockin_ts", "last_seen_ts", "clockout_ts", "open", "shift_label",
 )
 
 
@@ -87,6 +106,47 @@ class Storage:
                   ON CONFLICT(log_key) DO UPDATE SET {update_clause}"""
         self._conn.executemany(sql, [tuple(event[c] for c in _PRODUCTION_COLUMNS) for event in events])
         self._conn.commit()
+
+    def upsert_clockin_sessions(self, sessions: list):
+        if not sessions:
+            return
+        placeholders = ", ".join("?" for _ in _CLOCKIN_SESSION_COLUMNS)
+        update_clause = ", ".join(
+            f"{c}=excluded.{c}" for c in _CLOCKIN_SESSION_COLUMNS if c != "clockin_key"
+        )
+        sql = f"""INSERT INTO clockin_sessions ({', '.join(_CLOCKIN_SESSION_COLUMNS)})
+                  VALUES ({placeholders})
+                  ON CONFLICT(clockin_key) DO UPDATE SET {update_clause}"""
+        self._conn.executemany(
+            sql, [tuple(session[c] for c in _CLOCKIN_SESSION_COLUMNS) for session in sessions]
+        )
+        self._conn.commit()
+
+    def open_clockin_keys(self) -> set:
+        rows = self._conn.execute("SELECT clockin_key FROM clockin_sessions WHERE open = 1").fetchall()
+        return {row[0] for row in rows}
+
+    def close_sessions(self, clockin_keys: set) -> list:
+        """Closes each given session (clockout_ts = its own last_seen_ts,
+        open = 0) and returns the updated rows, for forwarding to the
+        cloud - the moment a clockin_key stops appearing in a poll is the
+        one place this whole design infers rather than reads directly
+        from Plex, see plex_sync/roster.py's docstring."""
+        if not clockin_keys:
+            return []
+        placeholders = ", ".join("?" for _ in clockin_keys)
+        self._conn.execute(
+            f"UPDATE clockin_sessions SET clockout_ts = last_seen_ts, open = 0 "
+            f"WHERE clockin_key IN ({placeholders})",
+            tuple(clockin_keys),
+        )
+        self._conn.commit()
+        cur = self._conn.execute(
+            f"SELECT {', '.join(_CLOCKIN_SESSION_COLUMNS)} FROM clockin_sessions "
+            f"WHERE clockin_key IN ({placeholders})",
+            tuple(clockin_keys),
+        )
+        return [dict(zip(_CLOCKIN_SESSION_COLUMNS, row)) for row in cur.fetchall()]
 
     def close(self):
         self._conn.close()

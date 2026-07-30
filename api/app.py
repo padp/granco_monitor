@@ -201,7 +201,7 @@ def ingest():
     db = get_db()
     counts = {}
 
-    for table_name in ("cycles", "state_events", "operator_segments", "production_events"):
+    for table_name in ("cycles", "state_events", "operator_segments", "production_events", "clockin_sessions"):
         rows = body.get(table_name) or []
         if rows:
             db[table_name].bulk_write(
@@ -209,19 +209,6 @@ def ingest():
                 ordered=False,
             )
         counts[table_name] = len(rows)
-
-    # clocked_in_now is a point-in-time snapshot (who's clocked in right
-    # now), not an append-only log like the tables above - upserting it
-    # would leave people who've since clocked out sitting in the
-    # collection forever. Full replace each sync cycle instead, and only
-    # when the key is actually present (an empty list still means "0
-    # people currently clocked in", a real result worth writing).
-    if "clocked_in_now" in body:
-        rows = body["clocked_in_now"] or []
-        db.clocked_in_now.delete_many({})
-        if rows:
-            db.clocked_in_now.insert_many(rows)
-        counts["clocked_in_now"] = len(rows)
 
     return jsonify(ok=True, counts=counts)
 
@@ -469,16 +456,26 @@ def shifts_efficiency():
 
 @app.get("/api/staffing/current")
 def staffing_current():
-    """clocked_in_now comes straight from Plex's own "currently clocked
-    in" report (HumanResources/ClockinMaintenance/SearchCurrentClockedInUsers)
-    - a direct, purpose-built answer to who's here right now, not inferred
+    """clockin_sessions (built by polling Plex's own "currently clocked
+    in" report - HumanResources/ClockinMaintenance/SearchCurrentClockedInUsers
+    - and tracking sessions over time, see plex_sync/sync.py) is a
+    direct, purpose-built answer to who's here right now, not inferred
     from WorkcenterLog activity (that inference is still used for the
-    shift crew summary below, where it's the right tool - a historical
-    time/status breakdown - but it's a worse fit for "right now")."""
+    shift crew summary's status mix below, where it's the right tool,
+    but it's a worse fit for "right now" - and for "how long were they
+    actually clocked in", which is exactly why this replaced the
+    earlier clocked_in_now snapshot). "Here right now" = any session
+    still open (clockout_ts not set)."""
     db = get_db()
-    rows = list(db.clocked_in_now.find(sort=[("employee_name", 1)], projection={"_id": False}))
+    rows = list(
+        db.clockin_sessions.find(
+            {"clockout_ts": None},
+            sort=[("employee_name", 1)],
+            projection={"_id": False, "employee_name": True, "last_seen_ts": True},
+        )
+    )
     operators = sorted({r["employee_name"] for r in rows if r.get("employee_name")})
-    as_of = max((r["synced_at"] for r in rows), default=None) if rows else None
+    as_of = max((r["last_seen_ts"] for r in rows), default=None) if rows else None
 
     return jsonify(
         operators=operators,
@@ -617,38 +614,76 @@ def shift_summary():
         shift_label = latest["shift_label"] if latest else None
 
     if not shift_label:
-        return jsonify(shift_label=None, operators=[], production_by_part=[])
+        return jsonify(shift_label=None, operators=[], production_by_part=[], clockin_sessions=[])
 
+    # Category mix (Production/Setup/Break/Idle) still comes from
+    # WorkcenterLog-derived operator_segments - grouped by employee_name
+    # (not badge_no) so it joins directly against clockin_sessions below,
+    # which only knows PlexusUserNo/name, not badge_no.
     segments = list(db.operator_segments.find({"shift_label": shift_label}, projection={"_id": False}))
-
-    by_badge = {}
+    category_seconds_by_name = {}
     for seg in segments:
-        badge = seg.get("badge_no")
-        entry = by_badge.setdefault(
-            badge, {"employee_name": seg.get("employee_name"), "total_seconds": 0.0, "by_category": {}}
-        )
-        duration = seg.get("duration_s") or 0.0
+        name = seg.get("employee_name")
+        if not name:
+            continue
+        by_category = category_seconds_by_name.setdefault(name, {})
         category = seg.get("status_category") or "other"
-        entry["total_seconds"] += duration
-        entry["by_category"][category] = entry["by_category"].get(category, 0.0) + duration
+        by_category[category] = by_category.get(category, 0.0) + (seg.get("duration_s") or 0.0)
 
+    # Clocked time now comes from clockin_sessions (real Plex clock-in/out
+    # tracking, see plex_sync/sync.py) instead of summing operator_segments'
+    # duration_s - that WorkcenterLog-activity time is exactly what the
+    # user doesn't trust as a stand-in for "actually clocked in" (an
+    # operator can be clocked in with zero logged activity, or vice versa
+    # if clock-in tracking hadn't started yet - see the fallback below).
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    clocked_seconds_by_name = {}
+    clockin_session_rows = []
+    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
+    if date_str and shift_name in SHIFT_NAMES:
+        start, end = _shift_window(date_str, shift_name)
+        sessions = db.clockin_sessions.find(
+            {"clockin_ts": {"$gte": start.isoformat(), "$lt": end.isoformat()}},
+            projection={"_id": False},
+        )
+        for session in sessions:
+            clockin_ts = datetime.fromisoformat(session["clockin_ts"])
+            clockout_ts = datetime.fromisoformat(session["clockout_ts"]) if session.get("clockout_ts") else None
+            duration = ((clockout_ts or now) - clockin_ts).total_seconds()
+            name = session.get("employee_name")
+            if name:
+                clocked_seconds_by_name[name] = clocked_seconds_by_name.get(name, 0.0) + duration
+            clockin_session_rows.append({
+                "employee_name": name,
+                "clockin_ts": session["clockin_ts"],
+                "clockout_ts": session.get("clockout_ts"),
+                "duration_seconds": duration,
+                "still_clocked_in": clockout_ts is None,
+            })
+    clockin_session_rows.sort(key=lambda r: r["clockin_ts"])
+
+    all_names = sorted(set(category_seconds_by_name) | set(clocked_seconds_by_name))
     operators = []
-    for entry in by_badge.values():
-        total = entry["total_seconds"]
+    for name in all_names:
+        by_category = category_seconds_by_name.get(name, {})
+        # Fall back to the old operator_segments-summed total for shifts
+        # before clock-in tracking existed, so historical browsing
+        # (the Shift Details date/shift picker) doesn't go blank for
+        # anything predating this change.
+        total = clocked_seconds_by_name.get(name)
+        if total is None:
+            total = sum(by_category.values())
         category_pct = {
-            cat: (seconds / total * 100 if total else 0.0) for cat, seconds in entry["by_category"].items()
+            cat: (seconds / total * 100 if total else 0.0) for cat, seconds in by_category.items()
         }
-        operators.append({
-            "employee_name": entry["employee_name"],
-            "total_seconds": total,
-            "category_pct": category_pct,
-        })
+        operators.append({"employee_name": name, "total_seconds": total, "category_pct": category_pct})
     operators.sort(key=lambda o: o["total_seconds"], reverse=True)
 
     return jsonify(
         shift_label=shift_label,
         operators=operators,
         production_by_part=_production_by_part(db, shift_label),
+        clockin_sessions=clockin_session_rows,
     )
 
 

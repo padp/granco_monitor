@@ -1,11 +1,11 @@
 """Flatten SearchCurrentClockedInUsers responses into a flat roster list.
 
-Unlike operator_segments (an append-only historical log derived from
-WorkcenterLog, used for the shift crew summary), this is a point-in-time
-snapshot of who is clocked in right now - the cloud side fully replaces
-its stored roster every sync cycle rather than upserting forever, so
-someone clocking out actually disappears instead of lingering forever as
-a stale row (see api/app.py's /ingest handling of "clocked_in_now").
+Each row includes clockin_key - Plex's own stable ID for that specific
+clock-in session, paired with an exact clockin_ts - so the caller
+(plex_sync/sync.py) can track real clock-in/out sessions over time
+rather than treating this as a disposable snapshot. A session's start
+never needs inference (Plex gives it directly); only its end does,
+by noticing a clockin_key stop appearing in later polls.
 """
 from datetime import datetime, timezone
 
@@ -35,6 +35,7 @@ def rows_to_roster(results_by_workcenter: dict) -> list:
         rows = (data or {}).get("Rows") or []
         for row in rows:
             roster.append({
+                "clockin_key": row.get("ClockinKey"),
                 "plexus_user_no": row.get("PlexusUserNo"),
                 "employee_name": _first_last(row.get("Name")),
                 "workcenter_key": workcenter_key,
