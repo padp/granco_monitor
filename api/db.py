@@ -46,3 +46,5 @@ def ensure_indexes():
     db.sessions.create_index("token", unique=True)
     db.sessions.create_index("created_ts", expireAfterSeconds=30 * 24 * 60 * 60)
     db.users.create_index("email", unique=True)
+    db.password_resets.create_index("token", unique=True)
+    db.password_resets.create_index("created_ts", expireAfterSeconds=60 * 60)

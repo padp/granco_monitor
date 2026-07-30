@@ -30,6 +30,22 @@
         </div>
       </form>
       <div id="auth-error" class="form-error"></div>
+      <button type="button" id="forgot-password-toggle" class="btn btn-link">Forgot password?</button>
+    </section>
+
+    <section id="forgot-password-card" class="card hidden">
+      <h2>Reset Password</h2>
+      <form id="forgot-password-form" class="form-grid">
+        <label>
+          Email
+          <input type="email" id="forgot-password-email" placeholder="you@uwh.uacj-group.com" required>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Send Reset Link</button>
+          <button type="button" id="forgot-password-cancel" class="btn btn-link">Back to log in</button>
+        </div>
+      </form>
+      <div id="forgot-password-message" class="form-status"></div>
     </section>
 
     <section id="schedule-card" class="card card-wide hidden">

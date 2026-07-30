@@ -11,6 +11,7 @@ import secrets
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import UpdateOne
@@ -38,10 +39,18 @@ GRADE_GOOD_MAX = 1.4
 LEADERBOARD_WINDOW_DAYS = 7
 
 # Accounts are gated to the company email domain - the user's own
-# stated requirement, both as an access filter and so a future
-# self-service password reset has somewhere real to send a link (not
-# built yet - see /api/admin/reset-password for the manual stand-in).
+# stated requirement, both as an access filter and so self-service
+# password reset (below) has somewhere real to send a link.
 ACCOUNT_EMAIL_DOMAIN = "@uwh.uacj-group.com"
+
+# Not secrets - fine to keep in code. The verified SendGrid sender and
+# this site's public URL (for building the link a reset email points
+# to). SENDGRID_API_KEY itself is the actual secret, read from the
+# environment (a Render env var) at send time, same convention as
+# SQL_PASS/INGEST_API_KEY.
+FROM_EMAIL = "loy-tyler@uwh.uacj-group.com"
+SITE_URL = "https://padp.github.io/granco_monitor/"
+PASSWORD_RESET_TOKEN_TTL_S = 60 * 60
 
 SHIFT_NAMES = ["First Shift", "Second Shift", "Third Shift"]
 
@@ -172,9 +181,9 @@ def logout():
 
 @app.post("/api/admin/reset-password")
 def admin_reset_password():
-    """Manual stand-in for a real "forgot password" flow - no email-
-    sending service is wired up yet (see ACCOUNT_EMAIL_DOMAIN's comment).
-    Gated by the same shared key /ingest already uses, not a new secret."""
+    """Manual override, kept alongside the self-service flow below (not
+    replaced by it) - gated by the same shared key /ingest already uses,
+    not a new secret. Useful if someone can't access their email at all."""
     if not _require_api_key():
         return jsonify(error="unauthorized"), 401
 
@@ -189,6 +198,81 @@ def admin_reset_password():
     )
     if result.matched_count == 0:
         return jsonify(error="no account with that email"), 404
+    return jsonify(ok=True)
+
+
+def _send_email(to_email: str, subject: str, body_text: str):
+    resp = requests.post(
+        "https://api.sendgrid.com/v3/mail/send",
+        headers={
+            "Authorization": f"Bearer {os.environ['SENDGRID_API_KEY']}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": FROM_EMAIL},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": body_text}],
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+
+_FORGOT_PASSWORD_GENERIC_RESPONSE = {
+    "ok": True,
+    "message": "If an account exists for that email, a reset link has been sent.",
+}
+
+
+@app.post("/api/forgot-password")
+def forgot_password():
+    """Always returns the same generic response whether or not the
+    account exists - standard practice so this can't be used to
+    enumerate registered emails. A SendGrid failure is logged
+    server-side (visible in Render logs) but doesn't change the
+    client-facing response either, for the same reason."""
+    body = request.get_json(force=True, silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+
+    user = get_db().users.find_one({"email": email}) if email else None
+    if user:
+        token = secrets.token_urlsafe(32)
+        get_db().password_resets.insert_one({
+            "token": token,
+            "email": email,
+            "created_ts": datetime.utcnow(),
+        })
+        reset_link = f"{SITE_URL}reset-password.html?token={token}"
+        try:
+            _send_email(
+                email,
+                "Reset your Granco Saw Monitor password",
+                f"Click the link below to set a new password. This link expires in 1 hour.\n\n{reset_link}",
+            )
+        except requests.RequestException as exc:
+            print(f"forgot-password: failed to send email to {email}: {exc}")
+
+    return jsonify(_FORGOT_PASSWORD_GENERIC_RESPONSE)
+
+
+@app.post("/api/reset-password")
+def reset_password():
+    body = request.get_json(force=True, silent=True) or {}
+    token = body.get("token") or ""
+    new_password = body.get("new_password") or ""
+    if len(new_password) < 8:
+        return jsonify(error="password must be at least 8 characters"), 400
+
+    db = get_db()
+    reset_doc = db.password_resets.find_one({"token": token})
+    if not reset_doc:
+        return jsonify(error="invalid or expired reset link"), 400
+
+    db.users.update_one(
+        {"email": reset_doc["email"]}, {"$set": {"password_hash": generate_password_hash(new_password)}}
+    )
+    db.password_resets.delete_one({"token": token})
     return jsonify(ok=True)
 
 
