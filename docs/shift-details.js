@@ -31,11 +31,32 @@ function fmtTimeWindow(startIso, endIso) {
   return `${start} - ${new Date(endIso).toLocaleTimeString()}`;
 }
 
+// null until the user (or the initial load) has picked a specific shift -
+// while null, the API's own "current shift" default is used instead.
+function pickedShiftLabel() {
+  const date = document.getElementById("shift-date").value;
+  const shift = document.getElementById("shift-select").value;
+  return date && shift ? `${date} - ${shift}` : null;
+}
+
 async function refreshShiftSummary() {
-  const res = await fetch(`${API_BASE}/api/shift/summary`);
+  const picked = pickedShiftLabel();
+  const url = picked
+    ? `${API_BASE}/api/shift/summary?shift_label=${encodeURIComponent(picked)}`
+    : `${API_BASE}/api/shift/summary`;
+  const res = await fetch(url);
   const data = await res.json();
 
   document.getElementById("shift-label").textContent = data.shift_label || "-";
+
+  // On first load nothing's been picked yet - sync the date/shift fields
+  // to whatever the API resolved as "current" so the picker starts on the
+  // shift actually being shown, instead of blank.
+  if (data.shift_label && !picked) {
+    const [datePart, shiftPart] = data.shift_label.split(" - ");
+    document.getElementById("shift-date").value = datePart;
+    document.getElementById("shift-select").value = shiftPart;
+  }
 
   const tbody = document.querySelector("#shift-summary-table tbody");
   tbody.innerHTML = "";
@@ -79,6 +100,9 @@ async function refreshAll() {
     document.getElementById("last-updated").textContent = `error: ${err.message}`;
   }
 }
+
+document.getElementById("shift-date").addEventListener("change", refreshAll);
+document.getElementById("shift-select").addEventListener("change", refreshAll);
 
 refreshAll();
 setInterval(refreshAll, POLL_INTERVAL_MS);

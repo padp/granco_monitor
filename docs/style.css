@@ -151,12 +151,20 @@ main.dashboard-grid {
    the default stacked-card margin (that would double up). */
 .dashboard-grid .col > .card { margin-bottom: 0; }
 
-/* Right column holds two non-stretching cards: schedule pinned top,
-   leaderboard pinned bottom ("top right" / "bottom right" per the
-   user's own layout request) - space-between puts whatever gap exists
-   between them instead of the cards drifting together in the middle. */
-.col-right { justify-content: space-between; }
+/* Right column: schedule stays pinned to its natural height at the top
+   ("top right" per the user's layout request); the leaderboard card
+   takes the rest of the column and scrolls internally if its own
+   content (medals + utilization + efficiency) is taller than the
+   remaining space - it grew past a fixed height once Efficiency was
+   added, and without this it was silently clipped by the TV page's
+   overflow:hidden rather than shown or scrollable. */
+.col-right { justify-content: flex-start; }
 .col-right .card { flex: 0 0 auto; }
+.leaderboard-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* Recent Cycles is the one card whose content can outgrow the screen -
    it grows to fill the rest of the left column and scrolls internally
@@ -181,6 +189,7 @@ main.dashboard-grid {
   .dashboard-grid .col { display: block; }
   .dashboard-grid .col > .card { margin-bottom: 1.25rem; }
   .cycles-card .overflow-wrap { overflow-y: visible; }
+  .leaderboard-card { overflow-y: visible; }
 }
 
 h2 {

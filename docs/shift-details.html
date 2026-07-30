@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Granco Saw Monitor — Crew Summary</title>
+  <title>Granco Saw Monitor — Shift Details</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="app-header">
-    <span class="app-header-title">Granco Saw Monitor — Crew Summary</span>
+    <span class="app-header-title">Granco Saw Monitor — Shift Details</span>
     <div style="display: flex; align-items: baseline; gap: 1rem;">
       <a class="app-header-subtitle app-header-link" href="index.html">&larr; Back to dashboard</a>
       <span id="last-updated" class="app-header-subtitle">-</span>
@@ -16,6 +16,23 @@
   </header>
 
   <main>
+    <section class="card card-wide">
+      <div class="form-grid form-grid-inline">
+        <label>
+          Date
+          <input type="date" id="shift-date">
+        </label>
+        <label>
+          Shift
+          <select id="shift-select">
+            <option>First Shift</option>
+            <option>Second Shift</option>
+            <option>Third Shift</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
     <section class="card card-wide">
       <h2>Shift Crew Summary</h2>
       <div id="shift-label" class="status-details">-</div>
@@ -59,6 +76,6 @@
     </section>
   </main>
 
-  <script src="crew.js"></script>
+  <script src="shift-details.js"></script>
 </body>
 </html>
