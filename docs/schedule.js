@@ -11,10 +11,6 @@ const authTitle = document.getElementById("auth-title");
 const authSubmit = document.getElementById("auth-submit");
 const authToggle = document.getElementById("auth-toggle");
 const authError = document.getElementById("auth-error");
-const forgotPasswordToggle = document.getElementById("forgot-password-toggle");
-const forgotPasswordCard = document.getElementById("forgot-password-card");
-const forgotPasswordForm = document.getElementById("forgot-password-form");
-const forgotPasswordMessage = document.getElementById("forgot-password-message");
 
 let authMode = "login"; // or "signup"
 
@@ -50,36 +46,6 @@ authToggle.addEventListener("click", () => {
   authSubmit.textContent = authMode === "login" ? "Log In" : "Create Account";
   authToggle.textContent = authMode === "login" ? "Need an account? Create one" : "Already have an account? Log in";
   authError.textContent = "";
-  forgotPasswordToggle.classList.toggle("hidden", authMode !== "login");
-});
-
-forgotPasswordToggle.addEventListener("click", () => {
-  authCard.classList.add("hidden");
-  forgotPasswordCard.classList.remove("hidden");
-  forgotPasswordMessage.textContent = "";
-  forgotPasswordForm.classList.remove("hidden");
-});
-
-document.getElementById("forgot-password-cancel").addEventListener("click", () => {
-  forgotPasswordCard.classList.add("hidden");
-  authCard.classList.remove("hidden");
-});
-
-forgotPasswordForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = document.getElementById("forgot-password-email").value.trim();
-  try {
-    const res = await fetch(`${API_BASE}/api/forgot-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-    forgotPasswordMessage.textContent = data.message || "If an account exists for that email, a reset link has been sent.";
-    forgotPasswordForm.classList.add("hidden");
-  } catch (err) {
-    forgotPasswordMessage.textContent = `Network error: ${err.message}`;
-  }
 });
 
 authForm.addEventListener("submit", async (e) => {

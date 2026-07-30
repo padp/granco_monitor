@@ -8,10 +8,7 @@ _require_session below.
 """
 import os
 import secrets
-import smtplib
-import socket
 from datetime import date, datetime, time, timedelta
-from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
@@ -20,23 +17,6 @@ from pymongo import UpdateOne
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import ensure_indexes, get_db
-
-# Render's network appears to lack an outbound IPv6 route: connecting to
-# smtp.gmail.com (which has both an IPv4 and IPv6 address) failed with
-# "Network is unreachable" (errno 101), even with valid credentials -
-# the classic symptom of Python picking the (here, unreachable) IPv6
-# address first. Forcing AF_INET makes every outbound connection in this
-# process resolve to IPv4 only - safe here, since both MongoDB Atlas and
-# Gmail fully support IPv4, and it's simpler than a one-off fix scoped
-# to just the SMTP call.
-_original_getaddrinfo = socket.getaddrinfo
-
-
-def _force_ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    return _original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-
-
-socket.getaddrinfo = _force_ipv4_getaddrinfo
 
 app = Flask(__name__)
 CORS(app)
@@ -58,21 +38,8 @@ GRADE_GOOD_MAX = 1.4
 LEADERBOARD_WINDOW_DAYS = 7
 
 # Accounts are gated to the company email domain - the user's own
-# stated requirement, both as an access filter and so self-service
-# password reset (below) has somewhere real to send a link.
+# stated requirement, as an access filter.
 ACCOUNT_EMAIL_DOMAIN = "@uwh.uacj-group.com"
-
-# This site's public URL, for building the link a reset email points to
-# - not a secret, fine to keep in code. The Gmail address/app password
-# actually sending the mail (see _send_email) are the real secrets,
-# read from the environment (Render env vars) at send time, same
-# convention as SQL_PASS/INGEST_API_KEY. Gmail's own SMTP relay was
-# chosen over SendGrid after the corporate mail server (uwh.uacj-group.com)
-# held/quarantined mail claiming to be from its own domain sent via a
-# third party - a personal Gmail account sending as itself through
-# Google's real infrastructure doesn't trip that same anti-spoofing check.
-SITE_URL = "https://padp.github.io/granco_monitor/"
-PASSWORD_RESET_TOKEN_TTL_S = 60 * 60
 
 SHIFT_NAMES = ["First Shift", "Second Shift", "Third Shift"]
 
@@ -203,9 +170,12 @@ def logout():
 
 @app.post("/api/admin/reset-password")
 def admin_reset_password():
-    """Manual override, kept alongside the self-service flow below (not
-    replaced by it) - gated by the same shared key /ingest already uses,
-    not a new secret. Useful if someone can't access their email at all."""
+    """The only password-reset path - self-service by email was tried and
+    abandoned (corporate mail server quarantined SendGrid's sends as
+    spoofing, and Render's network blocks outbound SMTP outright for the
+    Gmail fallback). Gated by the same shared key /ingest already uses,
+    not a new secret. See docs/admin-reset.html for the small UI on top
+    of this endpoint."""
     if not _require_api_key():
         return jsonify(error="unauthorized"), 401
 
@@ -220,94 +190,6 @@ def admin_reset_password():
     )
     if result.matched_count == 0:
         return jsonify(error="no account with that email"), 404
-    return jsonify(ok=True)
-
-
-def _send_email(to_email: str, subject: str, body_text: str):
-    """Sent via Gmail's own SMTP relay (smtplib, standard library - no
-    extra dependency), authenticated with a dedicated Gmail account's
-    app password (GMAIL_ADDRESS/GMAIL_APP_PASSWORD env vars, Render
-    settings) - not a real account password, an app-specific one
-    generated under that Google account's Security settings."""
-    gmail_address = os.environ["GMAIL_ADDRESS"]
-    message = MIMEText(body_text)
-    message["Subject"] = subject
-    message["From"] = gmail_address
-    message["To"] = to_email
-
-    # A short, explicit timeout so a blocked/blackholed outbound
-    # connection fails fast and loudly (caught by forgot_password's
-    # except clause) instead of hanging the request handler indefinitely -
-    # smtplib has no timeout by default.
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as smtp:
-        smtp.starttls()
-        smtp.login(gmail_address, os.environ["GMAIL_APP_PASSWORD"])
-        smtp.send_message(message)
-
-
-_FORGOT_PASSWORD_GENERIC_RESPONSE = {
-    "ok": True,
-    "message": "If an account exists for that email, a reset link has been sent.",
-}
-
-
-@app.post("/api/forgot-password")
-def forgot_password():
-    """Always returns the same generic response whether or not the
-    account exists - standard practice so this can't be used to
-    enumerate registered emails. A send failure is logged server-side
-    (visible in Render logs) but doesn't change the client-facing
-    response either, for the same reason."""
-    body = request.get_json(force=True, silent=True) or {}
-    email = (body.get("email") or "").strip().lower()
-
-    user = get_db().users.find_one({"email": email}) if email else None
-    # Server-log only, never exposed to the client (that's the whole
-    # point of the generic response above) - purely to tell "no matching
-    # account" apart from "account found, send attempted" while debugging.
-    print(f"forgot-password: email={email!r} account_found={bool(user)}", flush=True)
-    if user:
-        token = secrets.token_urlsafe(32)
-        get_db().password_resets.insert_one({
-            "token": token,
-            "email": email,
-            "created_ts": datetime.utcnow(),
-        })
-        reset_link = f"{SITE_URL}reset-password.html?token={token}"
-        try:
-            _send_email(
-                email,
-                "Reset your Granco Saw Monitor password",
-                f"Click the link below to set a new password. This link expires in 1 hour.\n\n{reset_link}",
-            )
-        except (smtplib.SMTPException, OSError) as exc:
-            # flush=True: print() is block-buffered (not line-buffered)
-            # when stdout isn't a real terminal, which is exactly the
-            # case running under gunicorn on Render - without this the
-            # error is genuinely being caught, just sitting unflushed
-            # instead of reaching the logs.
-            print(f"forgot-password: failed to send email to {email}: {exc}", flush=True)
-
-    return jsonify(_FORGOT_PASSWORD_GENERIC_RESPONSE)
-
-
-@app.post("/api/reset-password")
-def reset_password():
-    body = request.get_json(force=True, silent=True) or {}
-    token = body.get("token") or ""
-    new_password = body.get("new_password") or ""
-    if len(new_password) < 8:
-        return jsonify(error="password must be at least 8 characters"), 400
-
-    db = get_db()
-    reset_doc = db.password_resets.find_one({"token": token})
-    if not reset_doc:
-        return jsonify(error="invalid or expired reset link"), 400
-
-    db.users.update_one(
-        {"email": reset_doc["email"]}, {"$set": {"password_hash": generate_password_hash(new_password)}}
-    )
-    db.password_resets.delete_one({"token": token})
     return jsonify(ok=True)
 
 

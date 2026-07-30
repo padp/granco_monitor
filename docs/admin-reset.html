@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Admin Password Reset</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Admin Password Reset</span>
+    <a class="app-header-subtitle app-header-link" href="schedule.html">&larr; Back to schedule</a>
+  </header>
+
+  <main>
+    <section id="admin-reset-card" class="card">
+      <h2>Reset a User's Password</h2>
+      <form id="admin-reset-form" class="form-grid">
+        <label>
+          API Key
+          <input type="password" id="admin-reset-key" required>
+        </label>
+        <label>
+          Account Email
+          <input type="email" id="admin-reset-email" placeholder="you@uwh.uacj-group.com" required>
+        </label>
+        <label>
+          New Password
+          <input type="password" id="admin-reset-password" required minlength="8">
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Reset Password</button>
+        </div>
+      </form>
+      <div id="admin-reset-error" class="form-error"></div>
+      <div id="admin-reset-status" class="form-status"></div>
+    </section>
+  </main>
+
+  <script src="admin-reset.js"></script>
+</body>
+</html>
