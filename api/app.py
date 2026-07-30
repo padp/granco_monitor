@@ -217,7 +217,11 @@ def _send_email(to_email: str, subject: str, body_text: str):
     message["From"] = gmail_address
     message["To"] = to_email
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+    # A short, explicit timeout so a blocked/blackholed outbound
+    # connection fails fast and loudly (caught by forgot_password's
+    # except clause) instead of hanging the request handler indefinitely -
+    # smtplib has no timeout by default.
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as smtp:
         smtp.starttls()
         smtp.login(gmail_address, os.environ["GMAIL_APP_PASSWORD"])
         smtp.send_message(message)
