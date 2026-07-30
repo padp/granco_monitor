@@ -244,6 +244,10 @@ def forgot_password():
     email = (body.get("email") or "").strip().lower()
 
     user = get_db().users.find_one({"email": email}) if email else None
+    # Server-log only, never exposed to the client (that's the whole
+    # point of the generic response above) - purely to tell "no matching
+    # account" apart from "account found, send attempted" while debugging.
+    print(f"forgot-password: email={email!r} account_found={bool(user)}", flush=True)
     if user:
         token = secrets.token_urlsafe(32)
         get_db().password_resets.insert_one({
