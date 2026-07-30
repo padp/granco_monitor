@@ -117,5 +117,78 @@ async function refreshAll() {
 document.getElementById("shift-date").addEventListener("change", refreshAll);
 document.getElementById("shift-select").addEventListener("change", refreshAll);
 
+function fmtPph(value) {
+  return value === null || value === undefined ? "-" : `${value}/hr`;
+}
+
+// Unlike fmtTimeWindow (used by the single-shift production table above,
+// where the date is implied by the picked shift), part-session results
+// can span any date range, so the date has to be shown too.
+function fmtDateTimeWindow(startIso, endIso) {
+  if (!startIso) return "-";
+  const start = new Date(startIso).toLocaleString();
+  if (!endIso || endIso === startIso) return start;
+  return `${start} - ${new Date(endIso).toLocaleString()}`;
+}
+
+async function searchPartSessions() {
+  const params = new URLSearchParams();
+  const partNumber = document.getElementById("pts-part-number").value.trim();
+  const dateFrom = document.getElementById("pts-date-from").value;
+  const dateTo = document.getElementById("pts-date-to").value;
+  const shift = document.getElementById("pts-shift").value;
+  if (partNumber) params.set("part_number", partNumber);
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) {
+    // date_to is compared as an exclusive upper bound server-side (same
+    // [start, end) convention as everything else in this app) - bump it
+    // to the next day so picking "Date To" actually includes that whole day.
+    const exclusiveEnd = new Date(`${dateTo}T00:00:00`);
+    exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
+    params.set("date_to", exclusiveEnd.toISOString().slice(0, 10));
+  }
+  if (shift) params.set("shift", shift);
+
+  const res = await fetch(`${API_BASE}/api/part-sessions?${params.toString()}`);
+  const data = await res.json();
+
+  const allTime = data.all_time || {};
+  document.getElementById("pts-all-time").textContent =
+    `All-time: PLC ${fmtNum(allTime.plc_pieces)} pieces (${fmtPph(allTime.plc_pieces_per_hour)}) - ` +
+    `Plex ${fmtNum(allTime.plex_pieces)} pieces (${fmtPph(allTime.plex_pieces_per_hour)})`;
+
+  const byShiftTbody = document.querySelector("#pts-by-shift-table tbody");
+  byShiftTbody.innerHTML = "";
+  for (const s of data.by_shift || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${s.shift}</td>
+      <td>${fmtNum(s.plc_pieces)}</td>
+      <td>${fmtPph(s.plc_pieces_per_hour)}</td>
+      <td>${fmtNum(s.plex_pieces)}</td>
+      <td>${fmtPph(s.plex_pieces_per_hour)}</td>
+    `;
+    byShiftTbody.appendChild(tr);
+  }
+
+  const sessionsTbody = document.querySelector("#pts-sessions-table tbody");
+  sessionsTbody.innerHTML = "";
+  for (const s of data.sessions || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${fmtDateTimeWindow(s.window_start, s.window_end)}</td>
+      <td>${s.input_part ?? "-"}</td>
+      <td>${s.output_part ?? "-"}</td>
+      <td>${fmtNum(s.plc_pieces)}</td>
+      <td>${fmtPph(s.plc_pieces_per_hour)}</td>
+      <td>${fmtNum(s.plex_pieces)}</td>
+      <td>${fmtPph(s.plex_pieces_per_hour)}</td>
+    `;
+    sessionsTbody.appendChild(tr);
+  }
+}
+
+document.getElementById("pts-search").addEventListener("click", searchPartSessions);
+
 refreshAll();
 setInterval(refreshAll, POLL_INTERVAL_MS);

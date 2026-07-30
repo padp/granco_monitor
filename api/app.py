@@ -504,7 +504,7 @@ def _detect_runs(items: list, ts_key: str, part_key: str) -> list:
     return runs
 
 
-def _production_by_part(db, shift_label: str) -> list:
+def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
     """Pieces cut, cross-checked between the PLC and Plex - matched by
     overlapping time windows, NOT by part number string equality. The
     PLC's part_number is the input extrusion part (e.g. "1412X-23") and
@@ -521,33 +521,42 @@ def _production_by_part(db, shift_label: str) -> list:
     time," which a plain per-part total comparison can't, since the two
     systems literally track different part identities.
 
-    PLC side - cycles doesn't store shift_label, so shift_label is parsed
-    back into a concrete [start, end) window via _shift_window (the
-    verified inverse of _current_date_and_shift) to filter cycles.ts.
+    Generalized over an arbitrary [ts_start, ts_end) window (either bound
+    may be None, meaning unbounded) rather than one shift, so it backs
+    both /api/shift/summary (via _production_by_part below, one shift's
+    window) and _sync_part_sessions (an arbitrary, possibly multi-day
+    catch-up window). Both cycles and production_events are filtered by
+    ts directly - production_events' own stored shift_label isn't used
+    here, since an arbitrary window doesn't correspond to one shift_label.
 
-    Plex side - production_events stores shift_label directly (set at
-    ingest time), so it's a plain equality filter. Production is summed
-    per event (deduplicated only by log_key, already guaranteed unique),
-    NOT max'd per SerialNo - see plex_sync/production.py's docstring for
-    why (SerialNo tracks a job/lot that can accumulate multiple real
-    completions, confirmed against real data the user found: 7 rows
-    sharing one SerialNo, each independently recording 192 pieces, true
-    total 1344 not 192).
+    Production is summed per event (deduplicated only by log_key, already
+    guaranteed unique), NOT max'd per SerialNo - see plex_sync/production.py's
+    docstring for why (SerialNo tracks a job/lot that can accumulate
+    multiple real completions, confirmed against real data the user
+    found: 7 rows sharing one SerialNo, each independently recording 192
+    pieces, true total 1344 not 192).
     """
-    plc_events = []
-    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
-    if date_str and shift_name in SHIFT_NAMES:
-        start, end = _shift_window(date_str, shift_name)
-        cycles = db.cycles.find(
-            {"ts": {"$gte": start.isoformat(), "$lt": end.isoformat()}, "is_trim_cut": {"$ne": 1}},
+    ts_filter = {}
+    if ts_start:
+        ts_filter["$gte"] = ts_start
+    if ts_end:
+        ts_filter["$lt"] = ts_end
+
+    cycles_filter = {"is_trim_cut": {"$ne": 1}}
+    if ts_filter:
+        cycles_filter["ts"] = ts_filter
+    plc_events = list(
+        db.cycles.find(
+            cycles_filter,
             projection={"_id": False, "ts": True, "part_number": True, "parts_per_cut": True},
             sort=[("ts", 1)],
         )
-        plc_events = list(cycles)
+    )
 
+    plex_filter = {"ts": ts_filter} if ts_filter else {}
     plex_events = list(
         db.production_events.find(
-            {"shift_label": shift_label},
+            plex_filter,
             projection={"_id": False, "ts": True, "part_no": True, "production": True, "scrap": True},
             sort=[("ts", 1)],
         )
@@ -604,6 +613,131 @@ def _production_by_part(db, shift_label: str) -> list:
 
     result.sort(key=lambda r: r["window_start"])
     return result
+
+
+def _production_by_part(db, shift_label: str) -> list:
+    """Thin per-shift wrapper kept for /api/shift/summary's existing
+    behavior - see _detect_part_runs for the actual grouping/pairing
+    logic, and _sync_part_sessions/api/part-sessions for the persisted,
+    arbitrary-date-range version of the same thing."""
+    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
+    if not date_str or shift_name not in SHIFT_NAMES:
+        return []
+    start, end = _shift_window(date_str, shift_name)
+    return _detect_part_runs(db, start.isoformat(), end.isoformat())
+
+
+# A resync only ever needs to look back as far as the most recently
+# stored session's own start (so a still-growing run gets fully
+# re-detected, never truncated) - this fixed floor just bounds that in
+# case the PLC and Plex pipelines happen to be lagging each other by a
+# few days (the same real-world lag /api/shift/summary already lives
+# with; not attempting to solve full historical re-pairing here).
+PART_SESSION_LOOKBACK = timedelta(days=3)
+
+
+def _sync_part_sessions(db):
+    """Keeps the persisted part_sessions collection caught up with
+    cycles/production_events, so /api/part-sessions can filter/aggregate
+    without rescanning raw cycles on every request. Backfills from the
+    beginning of time the first time it's ever called (empty
+    collection); after that, only rescans from PART_SESSION_LOOKBACK (or
+    the latest stored session's own start, if more recent data needs
+    re-detecting from its true beginning) through now - older sessions
+    are closed (the part changed) and won't change again."""
+    latest = db.part_sessions.find_one(sort=[("window_start", -1)], projection={"window_start": True})
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    ts_start = None
+    if latest:
+        resume_from = min(datetime.fromisoformat(latest["window_start"]), now - PART_SESSION_LOOKBACK)
+        ts_start = resume_from.isoformat()
+
+    for run in _detect_part_runs(db, ts_start, now.isoformat()):
+        window_start, window_end = run["window_start"], run["window_end"]
+        duration_s = (datetime.fromisoformat(window_end) - datetime.fromisoformat(window_start)).total_seconds()
+        date_str, shift_name = _current_date_and_shift(datetime.fromisoformat(window_start))
+
+        def _pph(pieces):
+            return round(pieces / duration_s * 3600, 1) if pieces is not None and duration_s else None
+
+        session_key = f"{run['input_part']}|{run['output_part']}|{window_start}"
+        db.part_sessions.update_one(
+            {"session_key": session_key},
+            {"$set": {
+                **run,
+                "session_key": session_key,
+                "duration_s": duration_s,
+                "shift_label": f"{date_str} - {shift_name}",
+                "plc_pieces_per_hour": _pph(run.get("plc_pieces")),
+                "plex_pieces_per_hour": _pph(run.get("plex_pieces")),
+            }},
+            upsert=True,
+        )
+
+
+def _part_session_totals(rows: list, pieces_key: str) -> tuple:
+    """Sum of pieces / hours across rows that actually have that side's
+    data - shared by the all-time total and each per-shift bucket below,
+    so "no plc data at all in this filter" (None) reads differently
+    from "plc ran but produced zero pieces" (0)."""
+    total_pieces = 0
+    total_seconds = 0.0
+    have_any = False
+    for row in rows:
+        pieces = row.get(pieces_key)
+        duration = row.get("duration_s")
+        if pieces is None or not duration:
+            continue
+        have_any = True
+        total_pieces += pieces
+        total_seconds += duration
+    if not have_any:
+        return None, None
+    return total_pieces, (round(total_pieces / total_seconds * 3600, 1) if total_seconds else None)
+
+
+@app.get("/api/part-sessions")
+def part_sessions():
+    """Search by part number matches either side - the PLC's input part
+    or Plex's output part - same "don't pick one source" stance as
+    _detect_part_runs above, since a floor operator only knows one of
+    the two numbering schemes off the top of their head."""
+    db = get_db()
+    _sync_part_sessions(db)
+
+    part_number = (request.args.get("part_number") or "").strip()
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    shift = request.args.get("shift")
+
+    query = {}
+    if part_number:
+        query["$or"] = [{"input_part": part_number}, {"output_part": part_number}]
+    window_filter = {}
+    if date_from:
+        window_filter["$gte"] = date_from
+    if date_to:
+        window_filter["$lt"] = date_to
+    if window_filter:
+        query["window_start"] = window_filter
+
+    rows = list(db.part_sessions.find(query, projection={"_id": False}, sort=[("window_start", -1)]))
+    if shift in SHIFT_NAMES:
+        rows = [r for r in rows if (r.get("shift_label") or "").split(" - ", 1)[-1] == shift]
+
+    def _totals(subset):
+        plc_pieces, plc_pph = _part_session_totals(subset, "plc_pieces")
+        plex_pieces, plex_pph = _part_session_totals(subset, "plex_pieces")
+        return {
+            "plc_pieces": plc_pieces,
+            "plc_pieces_per_hour": plc_pph,
+            "plex_pieces": plex_pieces,
+            "plex_pieces_per_hour": plex_pph,
+        }
+
+    by_shift = [{"shift": name, **_totals([r for r in rows if (r.get("shift_label") or "").split(" - ", 1)[-1] == name])} for name in SHIFT_NAMES]
+
+    return jsonify(sessions=rows, all_time=_totals(rows), by_shift=by_shift)
 
 
 @app.get("/api/shift/summary")

@@ -92,6 +92,71 @@
         </table>
       </div>
     </section>
+
+    <section class="card card-wide">
+      <h2>Part Time Study</h2>
+      <div class="status-details" style="margin-bottom: 0.5rem;">Search by either the PLC input part or the Plex output part - matches whichever one you type.</div>
+      <div class="form-grid form-grid-inline">
+        <label>
+          Part Number
+          <input type="text" id="pts-part-number" placeholder="1412X-23 or 1412S-23">
+        </label>
+        <label>
+          Date From
+          <input type="date" id="pts-date-from">
+        </label>
+        <label>
+          Date To
+          <input type="date" id="pts-date-to">
+        </label>
+        <label>
+          Shift
+          <select id="pts-shift">
+            <option value="">All</option>
+            <option>First Shift</option>
+            <option>Second Shift</option>
+            <option>Third Shift</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button type="button" id="pts-search" class="btn btn-primary">Search</button>
+        </div>
+      </div>
+
+      <div id="pts-all-time" class="status-details" style="margin: 0.75rem 0;">-</div>
+
+      <div class="overflow-wrap">
+        <table id="pts-by-shift-table">
+          <thead>
+            <tr>
+              <th>Shift</th>
+              <th>PLC Pieces</th>
+              <th>PLC Pieces/hr</th>
+              <th>Plex Pieces</th>
+              <th>Plex Pieces/hr</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="overflow-wrap" style="margin-top: 1rem;">
+        <table id="pts-sessions-table">
+          <thead>
+            <tr>
+              <th>Time Window</th>
+              <th>Input Part</th>
+              <th>Output Part</th>
+              <th>PLC Pieces</th>
+              <th>PLC Pieces/hr</th>
+              <th>Plex Pieces</th>
+              <th>Plex Pieces/hr</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script src="shift-details.js"></script>
