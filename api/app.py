@@ -8,10 +8,11 @@ _require_session below.
 """
 import os
 import secrets
+import smtplib
 from datetime import date, datetime, time, timedelta
+from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
-import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import UpdateOne
@@ -43,12 +44,15 @@ LEADERBOARD_WINDOW_DAYS = 7
 # password reset (below) has somewhere real to send a link.
 ACCOUNT_EMAIL_DOMAIN = "@uwh.uacj-group.com"
 
-# Not secrets - fine to keep in code. The verified SendGrid sender and
-# this site's public URL (for building the link a reset email points
-# to). SENDGRID_API_KEY itself is the actual secret, read from the
-# environment (a Render env var) at send time, same convention as
-# SQL_PASS/INGEST_API_KEY.
-FROM_EMAIL = "loy-tyler@uwh.uacj-group.com"
+# This site's public URL, for building the link a reset email points to
+# - not a secret, fine to keep in code. The Gmail address/app password
+# actually sending the mail (see _send_email) are the real secrets,
+# read from the environment (Render env vars) at send time, same
+# convention as SQL_PASS/INGEST_API_KEY. Gmail's own SMTP relay was
+# chosen over SendGrid after the corporate mail server (uwh.uacj-group.com)
+# held/quarantined mail claiming to be from its own domain sent via a
+# third party - a personal Gmail account sending as itself through
+# Google's real infrastructure doesn't trip that same anti-spoofing check.
 SITE_URL = "https://padp.github.io/granco_monitor/"
 PASSWORD_RESET_TOKEN_TTL_S = 60 * 60
 
@@ -202,21 +206,21 @@ def admin_reset_password():
 
 
 def _send_email(to_email: str, subject: str, body_text: str):
-    resp = requests.post(
-        "https://api.sendgrid.com/v3/mail/send",
-        headers={
-            "Authorization": f"Bearer {os.environ['SENDGRID_API_KEY']}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "personalizations": [{"to": [{"email": to_email}]}],
-            "from": {"email": FROM_EMAIL},
-            "subject": subject,
-            "content": [{"type": "text/plain", "value": body_text}],
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
+    """Sent via Gmail's own SMTP relay (smtplib, standard library - no
+    extra dependency), authenticated with a dedicated Gmail account's
+    app password (GMAIL_ADDRESS/GMAIL_APP_PASSWORD env vars, Render
+    settings) - not a real account password, an app-specific one
+    generated under that Google account's Security settings."""
+    gmail_address = os.environ["GMAIL_ADDRESS"]
+    message = MIMEText(body_text)
+    message["Subject"] = subject
+    message["From"] = gmail_address
+    message["To"] = to_email
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.starttls()
+        smtp.login(gmail_address, os.environ["GMAIL_APP_PASSWORD"])
+        smtp.send_message(message)
 
 
 _FORGOT_PASSWORD_GENERIC_RESPONSE = {
@@ -229,9 +233,9 @@ _FORGOT_PASSWORD_GENERIC_RESPONSE = {
 def forgot_password():
     """Always returns the same generic response whether or not the
     account exists - standard practice so this can't be used to
-    enumerate registered emails. A SendGrid failure is logged
-    server-side (visible in Render logs) but doesn't change the
-    client-facing response either, for the same reason."""
+    enumerate registered emails. A send failure is logged server-side
+    (visible in Render logs) but doesn't change the client-facing
+    response either, for the same reason."""
     body = request.get_json(force=True, silent=True) or {}
     email = (body.get("email") or "").strip().lower()
 
@@ -250,7 +254,7 @@ def forgot_password():
                 "Reset your Granco Saw Monitor password",
                 f"Click the link below to set a new password. This link expires in 1 hour.\n\n{reset_link}",
             )
-        except requests.RequestException as exc:
+        except (smtplib.SMTPException, OSError) as exc:
             print(f"forgot-password: failed to send email to {email}: {exc}")
 
     return jsonify(_FORGOT_PASSWORD_GENERIC_RESPONSE)
