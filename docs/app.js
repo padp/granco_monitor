@@ -185,18 +185,19 @@ async function refreshActiveShifts() {
   const res = await fetch(`${API_BASE}/api/shifts/active-count`);
   const data = await res.json();
 
-  const windowDays = data.window_days || 7;
   const list = document.getElementById("active-shifts-list");
   list.innerHTML = "";
   for (const s of data.shifts || []) {
     const li = document.createElement("li");
     li.className = "utilization-row";
-    const pct = (s.active_count / windowDays) * 100;
+    const scheduledDays = s.scheduled_days ?? 5;
+    const pct = (s.active_count / scheduledDays) * 100;
     const cls = scoreClass(pct);
+    const overtimeText = s.overtime_count ? ` (+${s.overtime_count} overtime)` : "";
     li.innerHTML = `
       <span class="utilization-shift">${s.shift}</span>
       <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${pct}%"></div></div>
-      <span class="utilization-pct">${s.active_count} of ${windowDays}</span>
+      <span class="utilization-pct">${s.active_count} of ${scheduledDays}${overtimeText}</span>
     `;
     list.appendChild(li);
   }

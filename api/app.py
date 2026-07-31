@@ -463,23 +463,62 @@ def shifts_active_count():
     unlike state_events (see above) or operator_segments (workcenter
     duplication, see the leaderboard's efficiency fix) - and it sidesteps
     both of those data-quality problems entirely rather than working
-    around them."""
+    around them.
+
+    The plant typically only runs Monday-Friday, so weekend days
+    aren't held against a shift - scheduled_days counts only the
+    weekdays among the trailing week's occurrences (always 5 for a
+    7-day window, by the ordinary calendar property that any 7
+    consecutive days contain exactly 5 weekdays - computed per-occurrence
+    here rather than hardcoded, so it stays correct if the window length
+    or schedule ever changes). Running on a weekend does happen
+    (overtime) - that's tracked separately (overtime_count) rather than
+    folded into active_count, since a shift running every scheduled day
+    AND working a weekend should read differently from one that just
+    hit its normal 5.
+
+    Each occurrence's weekday-ness is judged by its own start date, not
+    the shift_label's date - Third Shift's label is pinned to the date
+    its early-morning half falls on (see _current_date_and_shift), but
+    a Friday-night-into-Saturday-morning Third Shift is a normal
+    Friday shift to the crew, not weekend overtime, and the reverse
+    (Sunday night into Monday morning) really is overtime despite
+    Monday being a normal workday."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
 
+    scheduled_days = {name: 0 for name in SHIFT_NAMES}
     active_count = {name: 0 for name in SHIFT_NAMES}
+    overtime_count = {name: 0 for name in SHIFT_NAMES}
     for day_offset in range(LEADERBOARD_WINDOW_DAYS):
         date_str = (now - timedelta(days=day_offset)).date().isoformat()
         for name in SHIFT_NAMES:
             start, end = _shift_window(date_str, name)
+            is_weekday = start.weekday() < 5  # Monday=0 ... Sunday=6
+
+            if is_weekday:
+                scheduled_days[name] += 1
+
             ran = db.cycles.find_one({
                 "ts": {"$gte": start.isoformat(), "$lt": end.isoformat()},
                 "is_trim_cut": {"$ne": 1},
             })
-            if ran:
+            if not ran:
+                continue
+            if is_weekday:
                 active_count[name] += 1
+            else:
+                overtime_count[name] += 1
 
-    shifts = [{"shift": name, "active_count": active_count[name]} for name in SHIFT_NAMES]
+    shifts = [
+        {
+            "shift": name,
+            "active_count": active_count[name],
+            "scheduled_days": scheduled_days[name],
+            "overtime_count": overtime_count[name],
+        }
+        for name in SHIFT_NAMES
+    ]
     shifts.sort(key=lambda s: -s["active_count"])
 
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
