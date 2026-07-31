@@ -98,24 +98,60 @@ class Detector:
             self._storage.upsert_recipe(part_number, details, ts)
         self._prev_part_number = part_number
 
+    @staticmethod
+    def _observed_cut_step(history: list):
+        """Average real backgauge decrement between the most recent
+        consecutive same-part, non-trim cuts in history (newest first) -
+        the ACTUAL per-cut spacing, kerf and all, rather than the
+        recipe's cut_length alone. Confirmed 2026-08-01 against a live
+        restart: real spacing ran ~1.14in for a part with cut_length =
+        0.9449in - only ~0.2in of difference, small enough that a single
+        missed cut still divides out close to 1, but compounding across
+        several missed cuts pushes it past a normal tolerance fast
+        (2 missed cuts alone was already off by an amount big enough to
+        fail cleanly). Stops as soon as it hits a trim cut, a part
+        change, a cut_number that isn't a simple -1 step, or a missing
+        position - so it only ever averages over a run that's actually
+        trustworthy, and returns None (letting the caller fall back to
+        the recipe's cut_length) if there isn't at least one clean pair
+        to measure."""
+        diffs = []
+        for older, newer in zip(history[1:], history):
+            if older.get("is_trim_cut") or newer.get("is_trim_cut"):
+                break
+            if older.get("part_number") != newer.get("part_number"):
+                break
+            if older.get("cut_number") is None or newer.get("cut_number") is None:
+                break
+            if older["cut_number"] != newer["cut_number"] - 1:
+                break
+            pos_older, pos_newer = older.get("backgauge_position"), newer.get("backgauge_position")
+            if pos_older is None or pos_newer is None:
+                break
+            diffs.append(pos_older - pos_newer)
+        return sum(diffs) / len(diffs) if diffs else None
+
     def _recover_cut_number(self, ts, snapshot):
         """Runs once, on the first real snapshot after startup - tries to
         tell a genuine dropped-connection restart (same batch, still
         loaded, cut_number should resume) apart from a routine restart
         that happens to land on a new/different batch (cut_number should
-        start at 0, same as today). Every normal cut advances the
-        backgauge by exactly cut_length, so if the same part is still
-        loaded and (last recorded position - current position) divides
-        cleanly into whole cut_length steps, that's strong evidence
-        nothing but time passed - the "missed" cuts are added onto the
-        last recorded cut_number. A gap that's too long, a different
-        part, the position having gone UP (a fresh bar loaded during the
-        gap), a division that isn't clean, or an implausibly large
-        inferred count all fall through to the existing default (0) -
-        exactly today's behavior when there's no reason to believe
-        otherwise."""
-        last = self._storage.last_cycle()
-        if not last or not last.get("ts") or last.get("backgauge_position") is None or not last.get("cut_length"):
+        start at 0, same as today). If the same part is still loaded and
+        (last recorded position - current position) divides cleanly into
+        whole steps of the REAL observed per-cut spacing (_observed_cut_step,
+        not just the recipe's cut_length - see its docstring for why that
+        distinction matters), that's strong evidence nothing but time
+        passed - the "missed" cuts are added onto the last recorded
+        cut_number. A gap that's too long, a different part, the position
+        having gone UP (a fresh bar loaded during the gap), a division
+        that isn't clean, or an implausibly large inferred count all fall
+        through to the existing default (0) - exactly today's behavior
+        when there's no reason to believe otherwise."""
+        history = self._storage.last_cycles(config.RECONNECT_RECOVERY_HISTORY_LOOKBACK)
+        if not history:
+            return
+        last = history[0]
+        if not last.get("ts") or last.get("backgauge_position") is None or not last.get("cut_length"):
             return
 
         if snapshot.get("part_number") != last.get("part_number"):
@@ -129,18 +165,18 @@ class Detector:
                   f"backward) to assume this is the same batch. Starting cut_number at 0.")
             return
 
-        cut_length_in = last["cut_length"]  # already normalized to inches at insert time
+        step_in = self._observed_cut_step(history) or last["cut_length"]
         position_diff = last["backgauge_position"] - snapshot["backgauge_position"]
         if position_diff < 0:
             print("Startup: backgauge position is higher than the last recorded cycle's - "
                   "looks like a fresh bar was loaded during the gap. Starting cut_number at 0.")
             return
 
-        missed_cuts = position_diff / cut_length_in
+        missed_cuts = position_diff / step_in
         if abs(missed_cuts - round(missed_cuts)) > config.RECONNECT_RECOVERY_TOLERANCE:
             print(f"Startup: position difference ({position_diff:.2f}in) doesn't divide cleanly "
-                  f"into cut_length ({cut_length_in:.2f}in) - not confident this is a continuation. "
-                  f"Starting cut_number at 0.")
+                  f"into the observed per-cut step ({step_in:.2f}in) - not confident this is a "
+                  f"continuation. Starting cut_number at 0.")
             return
         missed_cuts = round(missed_cuts)
         if missed_cuts > config.RECONNECT_RECOVERY_MAX_MISSED_CUTS:
@@ -150,7 +186,7 @@ class Detector:
 
         self._cut_number = (last.get("cut_number") or 0) + missed_cuts
         print(f"Startup: recovered cut_number={self._cut_number} ({gap_s:.0f}s gap, "
-              f"{missed_cuts} cuts inferred from backgauge position).")
+              f"{missed_cuts} cuts inferred from a {step_in:.3f}in observed per-cut step).")
 
     def _read_recipe_details(self) -> dict:
         values = self._plc.read_all(config.RECIPE_DETAIL_TAGS)

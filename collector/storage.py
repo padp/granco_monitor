@@ -96,21 +96,25 @@ class Storage:
             self._conn.execute("ALTER TABLE raw_buffer ADD COLUMN backgauge_home_position REAL")
             self._conn.commit()
 
-    def last_cycle(self) -> dict:
-        """Most recently recorded cycle, if any - lets Detector try to
-        recover cut_number after a collector restart (in-memory state
-        resetting doesn't mean the physical batch on the saw changed).
-        Ordered by id (insertion order), not ts, so it's correct even if
-        clock skew ever put two rows' timestamps out of order."""
+    def last_cycles(self, limit: int) -> list:
+        """The most recent `limit` cycles, newest first - lets Detector
+        try to recover cut_number after a collector restart (in-memory
+        state resetting doesn't mean the physical batch on the saw
+        changed). More than just the single last row: the recipe's
+        cut_length alone isn't the real per-cut backgauge step (kerf and
+        other real-world effects add to it - confirmed 2026-08-01
+        against a live restart, off by enough to matter), so recovery
+        derives the actual observed step from recent consecutive same-
+        part cuts instead of trusting cut_length alone. Ordered by id
+        (insertion order), not ts, so it's correct even if clock skew
+        ever put two rows' timestamps out of order."""
         cur = self._conn.execute(
-            "SELECT ts, part_number, cut_length, backgauge_position, cut_number "
-            "FROM cycles ORDER BY id DESC LIMIT 1"
+            "SELECT ts, part_number, cut_length, backgauge_position, cut_number, is_trim_cut "
+            "FROM cycles ORDER BY id DESC LIMIT ?",
+            (limit,),
         )
-        row = cur.fetchone()
-        if row is None:
-            return None
-        cols = ["ts", "part_number", "cut_length", "backgauge_position", "cut_number"]
-        return dict(zip(cols, row))
+        cols = ["ts", "part_number", "cut_length", "backgauge_position", "cut_number", "is_trim_cut"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def insert_cycle(self, row: dict):
         cols = list(row.keys())

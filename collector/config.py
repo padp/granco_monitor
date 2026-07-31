@@ -150,11 +150,20 @@ ERROR_BACKOFF_S = 2
 # On the first real snapshot after startup, Detector compares the current
 # backgauge position against the last recorded cycle's and, if it looks
 # like a plausible continuation (see Detector._recover_cut_number), resumes
-# numbering instead of starting over. NOT YET CONFIRMED against a real
-# outage - starting heuristics, not measured values.
+# numbering instead of starting over.
 RECONNECT_RECOVERY_MAX_GAP_S = 30 * 60  # beyond this, assume a shift/batch change, not a blip
 RECONNECT_RECOVERY_TOLERANCE = 0.25  # how close to a whole number of cuts counts as "clean"
 RECONNECT_RECOVERY_MAX_MISSED_CUTS = 200  # sanity cap even if the math happens to divide evenly
+
+# How many recent cycles to look at when deriving the REAL observed
+# per-cut backgauge step for recovery math, rather than trusting the
+# recipe's cut_length alone - confirmed 2026-08-01 against a live
+# restart that the true step runs measurably larger than cut_length
+# (kerf, and whatever else isn't modeled), enough that recovery's
+# tolerance check started failing on nothing more than 2-4 missed cuts.
+# 6 is enough to average out per-cut noise without reaching back past a
+# reload/part-change that would make the average meaningless.
+RECONNECT_RECOVERY_HISTORY_LOOKBACK = 6
 
 # --- Storage ---
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
