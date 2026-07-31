@@ -10,15 +10,17 @@ home baseline and returns during that hold. A hold with a blade excursion
 in it *is* a completed cut; a hold without one is just the backgauge
 sitting there (e.g. waiting on the next queued batch).
 
-Reload/trim detection: while holding, next_backgauge_position tells us
-where the backgauge is headed next. If that matches (current_position -
-cut_length), the upcoming move is a normal per-cut advance; if it
-doesn't, the upcoming move is something else (batch ending / the
-unpredictable reload approach), so the *following* hold's cycle gets
-flagged as a post-reload/trim cut. This replaced an earlier, fragile
+Reload/trim detection: every normal cut advances the backgauge by
+exactly the recipe's cut_length, and the saw physically refuses to cut
+below MIN_CUT_POSITION_IN - so a hold is the LAST normal cut of a batch
+if one more cut_length advance from its position would drop below that
+floor (see _check_next_move). The move that follows must then be a
+reload, so the *following* hold's cycle gets flagged as a post-reload/
+trim cut. This replaced an earlier attempt using next_backgauge_position
+(off by one cut in practice), which itself replaced an even earlier
 approach that tried to catch a moving sample within tolerance of
-BACKGAUGE_HOME_POS - that depended on lucky poll timing and an
-unconfirmed tag value, and in practice never fired.
+BACKGAUGE_HOME_POS (depended on lucky poll timing and an unconfirmed
+tag value, never fired in practice).
 """
 from datetime import datetime
 
@@ -207,12 +209,23 @@ class Detector:
         THIS hold is a normal per-cut advance.
 
         next_backgauge_position turned out not to be a usable signal (an
-        earlier attempt using it was off by one cut). Instead: a hold's
-        own position, if it's at or above the machine's minimum cutting
-        position but below the recipe's cut_length, means this hold is
-        the last normal cut of the batch (using up the remnant) - not
-        enough material remains for another full-length cut, so the
-        move that follows THIS hold must be a reload.
+        earlier attempt using it was off by one cut). Instead: every cut
+        advances the backgauge by exactly the recipe's cut_length and the
+        saw physically refuses to cut below MIN_CUT_POSITION_IN (confirmed
+        by the user: it always cuts full-length pieces and scraps
+        whatever's left, never a shorter partial-length piece) - so this
+        hold is the LAST normal cut of the batch if one more full
+        cut_length advance from here would drop below that floor. The
+        move that follows THIS hold must then be a reload.
+
+        This used to be `MIN_CUT_POSITION_IN <= position < cut_length_in`
+        (treating the last cut as a "remnant" shorter than a full
+        cut_length) - that's an empty range whenever cut_length_in is
+        itself less than MIN_CUT_POSITION_IN, i.e. any part with a
+        cut_length under ~3.5in (confirmed 2026-07-31 setting up a new
+        ~0.9in part: reload/trim detection would never have fired at
+        all for it). The current condition works the same way
+        regardless of how cut_length compares to MIN_CUT_POSITION_IN.
 
         Only ever sets _next_move_will_reload to True here, never clears
         it - clearing only happens when a new hold starts and consumes it
@@ -224,7 +237,7 @@ class Detector:
         if position is None or not cut_length_mm:
             return
         cut_length_in = cut_length_mm / config.MM_PER_INCH
-        if config.MIN_CUT_POSITION_IN <= position < cut_length_in:
+        if config.MIN_CUT_POSITION_IN <= position < config.MIN_CUT_POSITION_IN + cut_length_in:
             self._next_move_will_reload = True
 
     def _handle_hold_end(self, ts, snapshot):
