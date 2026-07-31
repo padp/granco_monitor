@@ -488,7 +488,12 @@ def shifts_utilization():
     for name in SHIFT_NAMES:
         total = total_seconds[name]
         pct = round(running_seconds[name] / total * 100) if total else None
-        shifts.append({"shift": name, "utilization_pct": pct})
+        shifts.append({
+            "shift": name,
+            "utilization_pct": pct,
+            "total_seconds": total,
+            "running_seconds": running_seconds[name],
+        })
 
     shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
 
