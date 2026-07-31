@@ -455,22 +455,32 @@ def shifts_utilization():
     whether the machine was running at all), kept as its own stat
     rather than blended into one score, per the user's choice.
 
-    state_events rows are frequently left with ts_end unset (confirmed
-    2026-07-31: 60 of 87 matched First Shift rows, 12 of 14 for Third
-    Shift - almost certainly old collector sessions/restarts that never
-    got closed out before the next one opened a new row). Each such
-    "open" row would otherwise get counted from its own ts_start all
-    the way to now, and since these dangling rows overlap each other
-    and the real, properly-closed rows, plain summation was massively
-    double/triple-counting the same wall-clock time (total_seconds was
-    reading ~65x too large before this fix). Intervals are merged
-    (_merge_interval_seconds, same technique as the leaderboard's
-    dual-workcenter fix) instead of summed, both for the total-elapsed
-    denominator and the RUNNING-only numerator, so overlapping/dangling
-    rows collapse to the real elapsed time regardless of how many
-    redundant rows exist for the same stretch.
+    state_events' own ts_end is unreliable and is ignored here entirely -
+    most rows never get it set (confirmed 2026-07-31: 60 of 87 matched
+    First Shift rows, 12 of 14 for Third Shift - almost certainly old
+    collector sessions/restarts that never closed the previous row
+    before a new one opened). An earlier version of this fix merged
+    overlapping [ts_start, ts_end-or-now) intervals, which correctly
+    stopped duplicate dangling rows from being double/triple-counted,
+    but a single dangling row is still its own problem even with no
+    duplicates: left alone, its interval runs all the way to now no
+    matter how stale it is - confirmed live, Third Shift's one real
+    productive night this week (starting 2026-07-27 22:54) never got
+    its RUNNING row closed, so it was reading as "still running"
+    continuously for 3+ days straight, alone accounting for nearly all
+    of that shift's inflated total.
 
-    Each state_events segment is attributed wholly to whichever shift
+    Since the machine can only be in one state at a time, each row's
+    true end is reconstructed as the NEXT row's ts_start instead
+    (whatever its state) - only the single most-recent row (nothing
+    chronologically after it) extends to now. This self-heals every
+    dangling row automatically without needing to identify which ones
+    are "bad": a stale-open row just ends the moment the next real
+    transition's ts_start says it did, and duplicate rows sharing the
+    same stretch collapse to contributing that stretch once, for the
+    same reason.
+
+    Each reconstructed segment is attributed wholly to whichever shift
     its (clipped) start falls in - segments spanning a shift changeover
     aren't split, a small approximation in the same spirit as this
     project's other documented heuristics."""
@@ -478,30 +488,35 @@ def shifts_utilization():
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
     window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
 
-    events = db.state_events.find(
-        {"$or": [{"ts_end": {"$gte": window_start.isoformat()}}, {"ts_end": None}]},
-        projection={"_id": False, "ts_start": True, "ts_end": True, "state": True},
+    # Needs events from before window_start too, so the state active
+    # right at window_start is known - state_events is a modest
+    # collection (one row per detected transition, not per poll), so
+    # scanning all of it is cheap; no ts filter needed on the query.
+    events = sorted(
+        (e for e in db.state_events.find(projection={"_id": False, "ts_start": True, "state": True}) if e.get("ts_start")),
+        key=lambda e: e["ts_start"],
     )
 
-    all_intervals = {name: [] for name in SHIFT_NAMES}
-    running_intervals = {name: [] for name in SHIFT_NAMES}
-    for event in events:
-        if not event.get("ts_start"):
-            continue
-        start = max(datetime.fromisoformat(event["ts_start"]), window_start)
-        end = min(datetime.fromisoformat(event["ts_end"]), now) if event.get("ts_end") else now
+    total_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    running_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    for i, event in enumerate(events):
+        start = datetime.fromisoformat(event["ts_start"])
+        end = datetime.fromisoformat(events[i + 1]["ts_start"]) if i + 1 < len(events) else now
+        start = max(start, window_start)
+        end = min(end, now)
         if end <= start:
             continue
 
+        duration = (end - start).total_seconds()
         shift = _shift_name_for((start.hour, start.minute))
-        all_intervals[shift].append((start, end))
+        total_seconds[shift] += duration
         if event.get("state") == "RUNNING":
-            running_intervals[shift].append((start, end))
+            running_seconds[shift] += duration
 
     shifts = []
     for name in SHIFT_NAMES:
-        total = _merge_interval_seconds(all_intervals[name])
-        running = _merge_interval_seconds(running_intervals[name])
+        total = total_seconds[name]
+        running = running_seconds[name]
         pct = round(running / total * 100) if total else None
         shifts.append({
             "shift": name,
