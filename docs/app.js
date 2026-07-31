@@ -219,6 +219,7 @@ async function refreshCycles() {
       <td>${fmtSeconds(cycle.cycle_duration_s)}</td>
       <td>${fmtSeconds(cycle.theoretical_duration_s)}</td>
       <td>${fmtSeconds(cycle.cut_length)}</td>
+      <td class="col-backgauge">${fmtSeconds(cycle.backgauge_position)}</td>
       <td>${cycle.parts_per_cut ?? "-"}</td>
       <td>${cycle.is_trim_cut ? "Trim / Reload" : ""}</td>
       <td>${gradeCellHtml(cycle)}</td>
@@ -243,6 +244,10 @@ async function refreshAll() {
     document.getElementById("last-updated").textContent = `error: ${err.message}`;
   }
 }
+
+document.getElementById("show-backgauge-toggle").addEventListener("change", (e) => {
+  document.getElementById("cycles-table").classList.toggle("show-backgauge", e.target.checked);
+});
 
 async function init() {
   await loadGradeFlavors();

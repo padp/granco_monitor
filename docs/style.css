@@ -293,6 +293,23 @@ tr.trim-row td {
 }
 tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 
+/* Backgauge position column - off by default (only useful for
+   occasional troubleshooting, e.g. checking batch/reload detection),
+   shown via the "Show backgauge position" checkbox above the table. */
+#cycles-table .col-backgauge { display: none; }
+#cycles-table.show-backgauge .col-backgauge { display: table-cell; }
+
+.cycles-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 /* ------------------------------------------------------------ */
 /* Cycle performance grade                                        */
 /* ------------------------------------------------------------ */
