@@ -527,7 +527,17 @@ def shifts_utilization():
 
     shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
 
-    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+    # TEMP diagnostic (2026-07-31): utilization is still reading ~100%
+    # post-reconstruction-fix, unchanged from before it - only possible
+    # if no state_events row at all has been written since the oldest
+    # dangling row found (2026-07-27), for any shift. Confirming that
+    # directly rather than guessing.
+    return jsonify(
+        shifts=shifts,
+        window_days=LEADERBOARD_WINDOW_DAYS,
+        newest_ts_start=events[-1]["ts_start"] if events else None,
+        total_event_count=len(events),
+    )
 
 
 @app.get("/api/staffing/current")
