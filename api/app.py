@@ -312,9 +312,9 @@ def shifts_leaderboard():
     their theoretical_duration_s doesn't cover the reload time, so
     comparing them would always look artificially bad.
 
-    Utilization (is the PLC running at all) stays a separate, unblended
+    Whether the shift ran at all this week stays a separate, unblended
     stat - a different question again, kept apart per the user's
-    earlier choice (see shifts_utilization)."""
+    earlier choice (see shifts_active_count)."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
     window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
@@ -446,126 +446,41 @@ def shifts_production():
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
-_SHIFT_BOUNDARIES = (_FIRST_START, _SECOND_START, _THIRD_START)
+@app.get("/api/shifts/active-count")
+def shifts_active_count():
+    """How many of the trailing week's calendar occurrences of each
+    shift actually had real cutting activity - replaces a %-of-time
+    "utilization" stat that turned out to be actively misleading (a
+    shift that only ran once all week could still read as ~50%+
+    utilized) and took three separate bug fixes chasing state_events
+    data-quality problems (dangling ts_end, sparse transitions spanning
+    multiple shifts) to even compute correctly. "1 of 7 shifts ran this
+    week" says what the user actually wants to know far more plainly
+    than any percentage of it could.
 
-
-def _next_shift_boundary(dt: datetime) -> datetime:
-    """The next occurrence (today or tomorrow) of a shift-changeover
-    time strictly after dt."""
-    candidates = [
-        datetime.combine(dt.date() + timedelta(days=day_delta), time(h, m))
-        for day_delta in (0, 1)
-        for h, m in _SHIFT_BOUNDARIES
-    ]
-    return min(c for c in candidates if c > dt)
-
-
-def _split_by_shift(start: datetime, end: datetime) -> list:
-    """Splits [start, end) at every shift changeover it crosses,
-    tagging each piece with the shift whose window it falls in - so a
-    segment spanning a shift change (or, given how sparse real
-    state_events transitions can be, several shifts or even days) gets
-    its time correctly divided between them instead of the whole
-    duration being credited to whichever shift its start happens to
-    fall in. Returns a list of (piece_start, piece_end, shift_name)."""
-    pieces = []
-    cur = start
-    while cur < end:
-        piece_end = min(_next_shift_boundary(cur), end)
-        pieces.append((cur, piece_end, _shift_name_for((cur.hour, cur.minute))))
-        cur = piece_end
-    return pieces
-
-
-@app.get("/api/shifts/utilization")
-def shifts_utilization():
-    """Uptime per shift: % of each shift's elapsed time over the
-    trailing week actually spent in the RUNNING state (state_events),
-    not cut pace - a different question from the Grade leaderboard
-    above (that's about how fast cuts go once running; this is about
-    whether the machine was running at all), kept as its own stat
-    rather than blended into one score, per the user's choice.
-
-    state_events' own ts_end is unreliable and is ignored here entirely -
-    most rows never get it set (confirmed 2026-07-31: 60 of 87 matched
-    First Shift rows, 12 of 14 for Third Shift - almost certainly old
-    collector sessions/restarts that never closed the previous row
-    before a new one opened). An earlier version of this fix merged
-    overlapping [ts_start, ts_end-or-now) intervals, which correctly
-    stopped duplicate dangling rows from being double/triple-counted,
-    but a single dangling row is still its own problem even with no
-    duplicates: left alone, its interval runs all the way to now no
-    matter how stale it is - confirmed live, Third Shift's one real
-    productive night this week (starting 2026-07-27 22:54) never got
-    its RUNNING row closed, so it was reading as "still running"
-    continuously for 3+ days straight, alone accounting for nearly all
-    of that shift's inflated total.
-
-    Since the machine can only be in one state at a time, each row's
-    true end is reconstructed as the NEXT row's ts_start instead
-    (whatever its state) - only the single most-recent row (nothing
-    chronologically after it) extends to now. This self-heals every
-    dangling row automatically without needing to identify which ones
-    are "bad": a stale-open row just ends the moment the next real
-    transition's ts_start says it did, and duplicate rows sharing the
-    same stretch collapse to contributing that stretch once, for the
-    same reason.
-
-    Real transitions have turned out to be sparse enough (see above)
-    that a segment routinely spans several shifts or even multiple
-    days - so each reconstructed segment is split at every shift
-    changeover it crosses (_split_by_shift) and each piece counted
-    toward its own shift, rather than crediting the whole span to
-    whichever shift its start happens to fall in. Confirmed necessary
-    live: before this, First Shift's total_seconds worked out to 80.6
-    hours in a trailing 7-day window - more than the 56-hour physical
-    maximum a single shift can have (8h x 7 days), because one sparse
-    segment starting in First Shift was absorbing hours that actually
-    belonged to Second and Third."""
+    Based on cycles (real, non-trim PLC-detected cuts) directly - the
+    most reliable ground truth of "did the saw actually run" available,
+    unlike state_events (see above) or operator_segments (workcenter
+    duplication, see the leaderboard's efficiency fix) - and it sidesteps
+    both of those data-quality problems entirely rather than working
+    around them."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
-    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
 
-    # Needs events from before window_start too, so the state active
-    # right at window_start is known - state_events is a modest
-    # collection (one row per detected transition, not per poll), so
-    # scanning all of it is cheap; no ts filter needed on the query.
-    events = sorted(
-        (e for e in db.state_events.find(projection={"_id": False, "ts_start": True, "state": True}) if e.get("ts_start")),
-        key=lambda e: e["ts_start"],
-    )
+    active_count = {name: 0 for name in SHIFT_NAMES}
+    for day_offset in range(LEADERBOARD_WINDOW_DAYS):
+        date_str = (now - timedelta(days=day_offset)).date().isoformat()
+        for name in SHIFT_NAMES:
+            start, end = _shift_window(date_str, name)
+            ran = db.cycles.find_one({
+                "ts": {"$gte": start.isoformat(), "$lt": end.isoformat()},
+                "is_trim_cut": {"$ne": 1},
+            })
+            if ran:
+                active_count[name] += 1
 
-    total_seconds = {name: 0.0 for name in SHIFT_NAMES}
-    running_seconds = {name: 0.0 for name in SHIFT_NAMES}
-    for i, event in enumerate(events):
-        start = datetime.fromisoformat(event["ts_start"])
-        end = datetime.fromisoformat(events[i + 1]["ts_start"]) if i + 1 < len(events) else now
-        start = max(start, window_start)
-        end = min(end, now)
-        if end <= start:
-            continue
-
-        for piece_start, piece_end, shift in _split_by_shift(start, end):
-            duration = (piece_end - piece_start).total_seconds()
-            if duration <= 0:
-                continue
-            total_seconds[shift] += duration
-            if event.get("state") == "RUNNING":
-                running_seconds[shift] += duration
-
-    shifts = []
-    for name in SHIFT_NAMES:
-        total = total_seconds[name]
-        running = running_seconds[name]
-        pct = round(running / total * 100) if total else None
-        shifts.append({
-            "shift": name,
-            "utilization_pct": pct,
-            "total_seconds": total,
-            "running_seconds": running,
-        })
-
-    shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
+    shifts = [{"shift": name, "active_count": active_count[name]} for name in SHIFT_NAMES]
+    shifts.sort(key=lambda s: -s["active_count"])
 
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 

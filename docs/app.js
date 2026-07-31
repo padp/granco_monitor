@@ -181,22 +181,22 @@ async function refreshLeaderboard() {
   });
 }
 
-async function refreshUtilization() {
-  const res = await fetch(`${API_BASE}/api/shifts/utilization`);
+async function refreshActiveShifts() {
+  const res = await fetch(`${API_BASE}/api/shifts/active-count`);
   const data = await res.json();
 
-  const list = document.getElementById("utilization-list");
+  const windowDays = data.window_days || 7;
+  const list = document.getElementById("active-shifts-list");
   list.innerHTML = "";
   for (const s of data.shifts || []) {
     const li = document.createElement("li");
     li.className = "utilization-row";
-    const cls = scoreClass(s.utilization_pct);
-    const pctText = s.utilization_pct === null || s.utilization_pct === undefined ? "-" : `${s.utilization_pct}%`;
-    const width = s.utilization_pct ?? 0;
+    const pct = (s.active_count / windowDays) * 100;
+    const cls = scoreClass(pct);
     li.innerHTML = `
       <span class="utilization-shift">${s.shift}</span>
-      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${width}%"></div></div>
-      <span class="utilization-pct">${pctText}</span>
+      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${pct}%"></div></div>
+      <span class="utilization-pct">${s.active_count} of ${windowDays}</span>
     `;
     list.appendChild(li);
   }
@@ -234,7 +234,7 @@ async function refreshAll() {
       refreshStaffing(),
       refreshSchedule(),
       refreshLeaderboard(),
-      refreshUtilization(),
+      refreshActiveShifts(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;
