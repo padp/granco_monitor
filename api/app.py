@@ -470,6 +470,9 @@ def shifts_utilization():
 
     total_seconds = {name: 0.0 for name in SHIFT_NAMES}
     running_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    event_count = {name: 0 for name in SHIFT_NAMES}
+    open_event_count = {name: 0 for name in SHIFT_NAMES}
+    oldest_ts_start = {name: None for name in SHIFT_NAMES}
     for event in events:
         if not event.get("ts_start"):
             continue
@@ -484,6 +487,17 @@ def shifts_utilization():
         if event.get("state") == "RUNNING":
             running_seconds[shift] += duration
 
+        # TEMP diagnostic (2026-07-31): tracking down why utilization's
+        # total_seconds is running ~65x too large - suspect dangling
+        # state_events left with ts_end=None from old collector sessions
+        # that never got closed, each clipped to a full [window_start, now)
+        # span instead of their real (short) duration.
+        event_count[shift] += 1
+        if not event.get("ts_end"):
+            open_event_count[shift] += 1
+        if oldest_ts_start[shift] is None or event["ts_start"] < oldest_ts_start[shift]:
+            oldest_ts_start[shift] = event["ts_start"]
+
     shifts = []
     for name in SHIFT_NAMES:
         total = total_seconds[name]
@@ -493,6 +507,9 @@ def shifts_utilization():
             "utilization_pct": pct,
             "total_seconds": total,
             "running_seconds": running_seconds[name],
+            "event_count": event_count[name],
+            "open_event_count": open_event_count[name],
+            "oldest_ts_start": oldest_ts_start[name],
         })
 
     shifts.sort(key=lambda s: (s["utilization_pct"] is None, -(s["utilization_pct"] or 0)))
