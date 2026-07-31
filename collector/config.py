@@ -141,6 +141,21 @@ MM_PER_INCH = 25.4
 MAX_CONSECUTIVE_ERRORS = 10
 ERROR_BACKOFF_S = 2
 
+# --- Reconnect recovery ---
+# A dropped PLC connection that exceeds MAX_CONSECUTIVE_ERRORS is handled
+# in-process (collector.py just swaps the PlcClient, Detector keeps its
+# state) - but if the collector process itself gets killed and relaunched
+# (a crash, a service restart), a fresh Detector starts cut_number back at
+# 0 even though the physical batch on the saw hasn't necessarily changed.
+# On the first real snapshot after startup, Detector compares the current
+# backgauge position against the last recorded cycle's and, if it looks
+# like a plausible continuation (see Detector._recover_cut_number), resumes
+# numbering instead of starting over. NOT YET CONFIRMED against a real
+# outage - starting heuristics, not measured values.
+RECONNECT_RECOVERY_MAX_GAP_S = 30 * 60  # beyond this, assume a shift/batch change, not a blip
+RECONNECT_RECOVERY_TOLERANCE = 0.25  # how close to a whole number of cuts counts as "clean"
+RECONNECT_RECOVERY_MAX_MISSED_CUTS = 200  # sanity cap even if the math happens to divide evenly
+
 # --- Storage ---
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(_PROJECT_ROOT, "db", "saw_monitor.db")

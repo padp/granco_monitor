@@ -51,6 +51,7 @@ class Detector:
         self._pending_batch_reload = False
         self._next_move_will_reload = False
         self._cut_number = 0
+        self._recovery_attempted = False
 
         self._recipe_cache = {}
 
@@ -58,6 +59,14 @@ class Detector:
         self._plc = plc_client
 
     def process(self, ts: datetime, snapshot: dict, reason: str = None):
+        # Only attempt this once, and only once a real (non-error)
+        # snapshot arrives - an error-only poll (missing position/part
+        # number, see collector.py's exception handler) shouldn't burn
+        # the one-shot attempt before there's anything to reason from.
+        if not self._recovery_attempted and snapshot.get("backgauge_position") is not None and snapshot.get("part_number"):
+            self._recover_cut_number(ts, snapshot)
+            self._recovery_attempted = True
+
         # _track_backgauge first: it may lock in pending_batch_reload for
         # this exact poll (a reload move starting), and _update_state needs
         # that fresh value, not last poll's, to attribute an IDLE
@@ -88,6 +97,60 @@ class Detector:
             self._recipe_cache[part_number] = details
             self._storage.upsert_recipe(part_number, details, ts)
         self._prev_part_number = part_number
+
+    def _recover_cut_number(self, ts, snapshot):
+        """Runs once, on the first real snapshot after startup - tries to
+        tell a genuine dropped-connection restart (same batch, still
+        loaded, cut_number should resume) apart from a routine restart
+        that happens to land on a new/different batch (cut_number should
+        start at 0, same as today). Every normal cut advances the
+        backgauge by exactly cut_length, so if the same part is still
+        loaded and (last recorded position - current position) divides
+        cleanly into whole cut_length steps, that's strong evidence
+        nothing but time passed - the "missed" cuts are added onto the
+        last recorded cut_number. A gap that's too long, a different
+        part, the position having gone UP (a fresh bar loaded during the
+        gap), a division that isn't clean, or an implausibly large
+        inferred count all fall through to the existing default (0) -
+        exactly today's behavior when there's no reason to believe
+        otherwise."""
+        last = self._storage.last_cycle()
+        if not last or not last.get("ts") or last.get("backgauge_position") is None or not last.get("cut_length"):
+            return
+
+        if snapshot.get("part_number") != last.get("part_number"):
+            print(f"Startup: part number changed since last cycle ({last.get('part_number')!r} -> "
+                  f"{snapshot.get('part_number')!r}) - starting cut_number at 0.")
+            return
+
+        gap_s = (ts - datetime.fromisoformat(last["ts"])).total_seconds()
+        if not (0 <= gap_s <= config.RECONNECT_RECOVERY_MAX_GAP_S):
+            print(f"Startup: {gap_s:.0f}s since last recorded cycle - too long (or clock went "
+                  f"backward) to assume this is the same batch. Starting cut_number at 0.")
+            return
+
+        cut_length_in = last["cut_length"]  # already normalized to inches at insert time
+        position_diff = last["backgauge_position"] - snapshot["backgauge_position"]
+        if position_diff < 0:
+            print("Startup: backgauge position is higher than the last recorded cycle's - "
+                  "looks like a fresh bar was loaded during the gap. Starting cut_number at 0.")
+            return
+
+        missed_cuts = position_diff / cut_length_in
+        if abs(missed_cuts - round(missed_cuts)) > config.RECONNECT_RECOVERY_TOLERANCE:
+            print(f"Startup: position difference ({position_diff:.2f}in) doesn't divide cleanly "
+                  f"into cut_length ({cut_length_in:.2f}in) - not confident this is a continuation. "
+                  f"Starting cut_number at 0.")
+            return
+        missed_cuts = round(missed_cuts)
+        if missed_cuts > config.RECONNECT_RECOVERY_MAX_MISSED_CUTS:
+            print(f"Startup: inferred {missed_cuts} missed cuts - implausibly many even though the "
+                  f"math divides evenly. Starting cut_number at 0.")
+            return
+
+        self._cut_number = (last.get("cut_number") or 0) + missed_cuts
+        print(f"Startup: recovered cut_number={self._cut_number} ({gap_s:.0f}s gap, "
+              f"{missed_cuts} cuts inferred from backgauge position).")
 
     def _read_recipe_details(self) -> dict:
         values = self._plc.read_all(config.RECIPE_DETAIL_TAGS)

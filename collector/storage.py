@@ -96,6 +96,22 @@ class Storage:
             self._conn.execute("ALTER TABLE raw_buffer ADD COLUMN backgauge_home_position REAL")
             self._conn.commit()
 
+    def last_cycle(self) -> dict:
+        """Most recently recorded cycle, if any - lets Detector try to
+        recover cut_number after a collector restart (in-memory state
+        resetting doesn't mean the physical batch on the saw changed).
+        Ordered by id (insertion order), not ts, so it's correct even if
+        clock skew ever put two rows' timestamps out of order."""
+        cur = self._conn.execute(
+            "SELECT ts, part_number, cut_length, backgauge_position, cut_number "
+            "FROM cycles ORDER BY id DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = ["ts", "part_number", "cut_length", "backgauge_position", "cut_number"]
+        return dict(zip(cols, row))
+
     def insert_cycle(self, row: dict):
         cols = list(row.keys())
         placeholders = ", ".join("?" for _ in cols)
