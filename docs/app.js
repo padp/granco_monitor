@@ -39,9 +39,24 @@ async function refreshStaffing() {
   const data = await res.json();
 
   const badge = document.getElementById("staffing-badge");
-  const understaffed = Boolean(data.understaffed);
-  badge.textContent = `${data.count ?? 0} staffed`;
-  badge.className = `badge ${understaffed ? "understaffed" : "staffed"}`;
+  const staleBanner = document.getElementById("staffing-stale-banner");
+  if (data.stale) {
+    // Stale clock-in data is worse than just "unknown" - the count/names
+    // below are frozen from whenever the sync last actually ran, which
+    // can look exactly like normal current data unless flagged. Don't
+    // even show a (likely wrong) staffed/understaffed verdict on it.
+    badge.textContent = "sync stale";
+    badge.className = "badge understaffed";
+    staleBanner.textContent = data.synced_at
+      ? `Clock-in data hasn't updated since ${fmtTs(data.synced_at)} - plex_sync may be down.`
+      : "No clock-in data has ever synced - plex_sync may not be running.";
+    staleBanner.classList.remove("hidden");
+  } else {
+    const understaffed = Boolean(data.understaffed);
+    badge.textContent = `${data.count ?? 0} staffed`;
+    badge.className = `badge ${understaffed ? "understaffed" : "staffed"}`;
+    staleBanner.classList.add("hidden");
+  }
 
   const operatorNames = (data.operators || []).join(", ") || "-";
   const asOf = data.as_of ? ` (as of ${fmtTs(data.as_of)})` : "";

@@ -231,6 +231,19 @@ h2 {
 .badge.staffed { background: var(--staffed); }
 .badge.understaffed { background: var(--understaffed); }
 
+/* Shown when the clock-in sync (plex_sync) hasn't updated in a while -
+   the operators/count above are frozen from whenever it last actually
+   ran, which otherwise looks identical to normal current data. */
+.stale-banner {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--understaffed);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 /* ------------------------------------------------------------ */
 /* Tables                                                         */
 /* ------------------------------------------------------------ */

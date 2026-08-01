@@ -30,6 +30,12 @@ STALL_THRESHOLD_S = 5 * 60
 
 MIN_STAFF_COUNT = 3
 
+# plex_sync polls Plex's clock-in report every 60s (see plex_sync/config.py's
+# SYNC_INTERVAL_S) - this gives ample buffer for normal poll jitter/a retry
+# or two without false-alarming, while still catching a genuinely dead
+# sync process (confirmed live: one sat dead for 25+ hours) quickly.
+STAFFING_STALE_THRESHOLD_S = 5 * 60
+
 # Mirrors docs/app.js's GRADE_THRESHOLDS - a cut counts as "great or
 # good" (the top two grade bands) at or below this ratio. Reused here to
 # score a shift's whole week instead of one row. Keep both files in sync.
@@ -535,7 +541,26 @@ def staffing_current():
     but it's a worse fit for "right now" - and for "how long were they
     actually clocked in", which is exactly why this replaced the
     earlier clocked_in_now snapshot). "Here right now" = any session
-    still open (clockout_ts not set)."""
+    still open (clockout_ts not set).
+
+    This whole design depends on plex_sync actually polling every
+    minute (see its own docstring) - if that process dies, an open
+    session just sits there looking "current" forever, with clocked
+    time silently growing against the real clock, and nobody who
+    clocked in/out during the outage ever gets seen at all (this report
+    is a live snapshot, not a historical log - a gap can't be
+    backfilled after the fact). Confirmed live 2026-08-01: plex_sync
+    crashed on startup on a newly-migrated PC (missing
+    `pip install -r requirements.txt`) and sat dead for 25+ hours before
+    anyone noticed, since the dashboard had no way to distinguish
+    "these people are still clocked in" from "nobody's checked in 25
+    hours." synced_at/stale below exist so that distinction is visible
+    immediately instead of silently wrong - synced_at is the most
+    recent last_seen_ts across ALL clockin_sessions (open or closed),
+    not just currently-open ones, so "nobody happens to be clocked in
+    right now" (a normal state, zero open rows) isn't confused with
+    "the sync process has stopped running" (no row of any kind touched
+    recently)."""
     db = get_db()
     rows = list(
         db.clockin_sessions.find(
@@ -547,12 +572,22 @@ def staffing_current():
     operators = sorted({r["employee_name"] for r in rows if r.get("employee_name")})
     as_of = max((r["last_seen_ts"] for r in rows), default=None) if rows else None
 
+    most_recent = db.clockin_sessions.find_one(sort=[("last_seen_ts", -1)], projection={"last_seen_ts": True})
+    synced_at = most_recent["last_seen_ts"] if most_recent else None
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    stale = (
+        synced_at is None
+        or (now - datetime.fromisoformat(synced_at)).total_seconds() > STAFFING_STALE_THRESHOLD_S
+    )
+
     return jsonify(
         operators=operators,
         count=len(operators),
         min_required=MIN_STAFF_COUNT,
         understaffed=len(operators) < MIN_STAFF_COUNT,
         as_of=as_of,
+        synced_at=synced_at,
+        stale=stale,
     )
 
 
