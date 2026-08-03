@@ -190,5 +190,40 @@ async function searchPartSessions() {
 
 document.getElementById("pts-search").addEventListener("click", searchPartSessions);
 
+async function searchClockinHistory() {
+  const params = new URLSearchParams();
+  const employee = document.getElementById("cih-employee").value.trim();
+  const dateFrom = document.getElementById("cih-date-from").value;
+  const dateTo = document.getElementById("cih-date-to").value;
+  if (employee) params.set("employee", employee);
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) {
+    // Exclusive upper bound server-side - bump to the next day so
+    // picking "Date To" includes that whole day.
+    const exclusiveEnd = new Date(`${dateTo}T00:00:00`);
+    exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
+    params.set("date_to", exclusiveEnd.toISOString().slice(0, 10));
+  }
+
+  const res = await fetch(`${API_BASE}/api/clockin-sessions?${params.toString()}`);
+  const data = await res.json();
+
+  const tbody = document.querySelector("#cih-sessions-table tbody");
+  tbody.innerHTML = "";
+  for (const s of data.sessions || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${s.employee_name ?? "-"}</td>
+      <td>${s.workcenter_code ?? "-"}</td>
+      <td>${fmtTs(s.clockin_ts)}</td>
+      <td>${s.still_clocked_in ? "still clocked in" : fmtTs(s.clockout_ts)}</td>
+      <td>${fmtHMS(s.duration_seconds)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById("cih-search").addEventListener("click", searchClockinHistory);
+
 refreshAll();
 setInterval(refreshAll, POLL_INTERVAL_MS);

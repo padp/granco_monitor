@@ -157,6 +157,43 @@
         </table>
       </div>
     </section>
+
+    <section class="card card-wide">
+      <h2>Clock-in History</h2>
+      <div class="status-details" style="margin-bottom: 0.5rem;">Real clock-in/out sessions (from Plex's own clock-in tracking) - not shift-scoped, so a session spanning multiple shifts shows its true full duration here.</div>
+      <div class="form-grid form-grid-inline">
+        <label>
+          Employee
+          <input type="text" id="cih-employee" placeholder="any">
+        </label>
+        <label>
+          Date From
+          <input type="date" id="cih-date-from">
+        </label>
+        <label>
+          Date To
+          <input type="date" id="cih-date-to">
+        </label>
+        <div class="form-actions">
+          <button type="button" id="cih-search" class="btn btn-primary">Search</button>
+        </div>
+      </div>
+
+      <div class="overflow-wrap" style="margin-top: 0.75rem;">
+        <table id="cih-sessions-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Workcenter</th>
+              <th>Clocked In</th>
+              <th>Clocked Out</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script src="shift-details.js"></script>

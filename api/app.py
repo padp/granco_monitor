@@ -7,6 +7,7 @@ actual people (not just the collector) edit that data - see
 _require_session below.
 """
 import os
+import re
 import secrets
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -589,6 +590,56 @@ def staffing_current():
         synced_at=synced_at,
         stale=stale,
     )
+
+
+@app.get("/api/clockin-sessions")
+def clockin_sessions_history():
+    """Raw clock-in/out session history, for reviewing historically (not
+    just "who's here right now" - see staffing_current above - or "who
+    was here THIS shift" - see shift_summary's clockin_sessions, which
+    additionally clips duration to one shift's window since it feeds
+    that shift's category percentages). This endpoint shows each
+    session's true, un-clipped clockin_ts/clockout_ts/duration, filtered
+    by an optional date range and/or employee name.
+
+    Date range is matched by overlap, not "clocked in during this exact
+    range" - a session that started before date_from and is still open
+    (or closed sometime after date_from) still belongs in the result,
+    same reasoning as shift_summary's own overlap fix."""
+    db = get_db()
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    employee = (request.args.get("employee") or "").strip()
+
+    query = {}
+    if date_to:
+        query["clockin_ts"] = {"$lt": date_to}
+    if date_from:
+        query["$or"] = [{"clockout_ts": None}, {"clockout_ts": {"$gte": date_from}}]
+    if employee:
+        query["employee_name"] = {"$regex": re.escape(employee), "$options": "i"}
+
+    rows = list(db.clockin_sessions.find(query, projection={"_id": False}, sort=[("clockin_ts", -1)]))
+
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    sessions = []
+    for row in rows:
+        clockin_ts = row.get("clockin_ts")
+        if not clockin_ts:
+            continue
+        clockout_ts = row.get("clockout_ts")
+        start = datetime.fromisoformat(clockin_ts)
+        end = datetime.fromisoformat(clockout_ts) if clockout_ts else now
+        sessions.append({
+            "employee_name": row.get("employee_name"),
+            "workcenter_code": row.get("workcenter_code"),
+            "clockin_ts": clockin_ts,
+            "clockout_ts": clockout_ts,
+            "duration_seconds": (end - start).total_seconds(),
+            "still_clocked_in": clockout_ts is None,
+        })
+
+    return jsonify(sessions=sessions)
 
 
 def _detect_runs(items: list, ts_key: str, part_key: str) -> list:
