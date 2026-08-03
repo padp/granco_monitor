@@ -881,14 +881,29 @@ def shift_summary():
     date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
     if date_str and shift_name in SHIFT_NAMES:
         start, end = _shift_window(date_str, shift_name)
+        # Matches on OVERLAP with the shift window, not "started during
+        # it" - a session that clocked in during a prior shift and is
+        # still open (or closed sometime after this shift started) is
+        # part of this shift's crew too. The previous clockin_ts-only
+        # filter silently dropped anyone still clocked in from an
+        # earlier shift - confirmed live 2026-08-03: two of four
+        # currently-clocked-in operators were missing from this table
+        # for exactly that reason.
         sessions = db.clockin_sessions.find(
-            {"clockin_ts": {"$gte": start.isoformat(), "$lt": end.isoformat()}},
+            {
+                "clockin_ts": {"$lt": end.isoformat()},
+                "$or": [{"clockout_ts": None}, {"clockout_ts": {"$gte": start.isoformat()}}],
+            },
             projection={"_id": False},
         )
         for session in sessions:
             clockin_ts = datetime.fromisoformat(session["clockin_ts"])
             clockout_ts = datetime.fromisoformat(session["clockout_ts"]) if session.get("clockout_ts") else None
-            duration = ((clockout_ts or now) - clockin_ts).total_seconds()
+            # Clocked time attributed to THIS shift is clipped to its
+            # window - a session spanning multiple shifts shouldn't have
+            # its whole multi-shift duration dumped onto just one of them.
+            effective_end = min(clockout_ts or now, end)
+            duration = max((effective_end - max(clockin_ts, start)).total_seconds(), 0.0)
             name = session.get("employee_name")
             if name:
                 clocked_seconds_by_name[name] = clocked_seconds_by_name.get(name, 0.0) + duration
