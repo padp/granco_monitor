@@ -904,21 +904,57 @@ def shift_summary():
         shift_label = latest["shift_label"] if latest else None
 
     if not shift_label:
-        return jsonify(shift_label=None, operators=[], production_by_part=[], clockin_sessions=[])
+        return jsonify(
+            shift_label=None,
+            operators=[],
+            workcenter_summary={"total_seconds": 0, "category_pct": {}},
+            production_by_part=[],
+            clockin_sessions=[],
+        )
 
     # Category mix (Production/Setup/Break/Idle) still comes from
     # WorkcenterLog-derived operator_segments - grouped by employee_name
     # (not badge_no) so it joins directly against clockin_sessions below,
     # which only knows PlexusUserNo/name, not badge_no.
+    #
+    # A single WorkcenterLog row can tag the WHOLE crew together on one
+    # status entry (see plex_sync/segments.py - EmployeeName is a list,
+    # exploded into one identical segment per operator on it), so several
+    # operators legitimately showing the exact same Production percentage
+    # isn't a bug - it's several people sharing one real status entry.
+    # But per-operator rows alone make that read as "this is personal
+    # activity," when it's really workcenter status that happened to be
+    # tagged onto everyone present. workcenter_summary answers the
+    # workcenter-level question directly: dedup by log_key (one entry
+    # counted once, regardless of how many operators it was tagged
+    # with) rather than by employee_name, same technique already used
+    # for the leaderboard's efficiency calc to avoid crew-size multiplication.
     segments = list(db.operator_segments.find({"shift_label": shift_label}, projection={"_id": False}))
     category_seconds_by_name = {}
+    workcenter_category_seconds = {}
+    seen_log_keys = set()
     for seg in segments:
-        name = seg.get("employee_name")
-        if not name:
-            continue
-        by_category = category_seconds_by_name.setdefault(name, {})
         category = seg.get("status_category") or "other"
-        by_category[category] = by_category.get(category, 0.0) + (seg.get("duration_s") or 0.0)
+        duration = seg.get("duration_s") or 0.0
+
+        name = seg.get("employee_name")
+        if name:
+            by_category = category_seconds_by_name.setdefault(name, {})
+            by_category[category] = by_category.get(category, 0.0) + duration
+
+        log_key = seg.get("log_key")
+        if log_key is not None and log_key not in seen_log_keys:
+            seen_log_keys.add(log_key)
+            workcenter_category_seconds[category] = workcenter_category_seconds.get(category, 0.0) + duration
+
+    workcenter_total = sum(workcenter_category_seconds.values())
+    workcenter_summary = {
+        "total_seconds": workcenter_total,
+        "category_pct": {
+            cat: (seconds / workcenter_total * 100 if workcenter_total else 0.0)
+            for cat, seconds in workcenter_category_seconds.items()
+        },
+    }
 
     # Clocked time now comes from clockin_sessions (real Plex clock-in/out
     # tracking, see plex_sync/sync.py) instead of summing operator_segments'
@@ -987,6 +1023,7 @@ def shift_summary():
     return jsonify(
         shift_label=shift_label,
         operators=operators,
+        workcenter_summary=workcenter_summary,
         production_by_part=_production_by_part(db, shift_label),
         clockin_sessions=clockin_session_rows,
     )

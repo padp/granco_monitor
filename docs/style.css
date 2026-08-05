@@ -306,6 +306,17 @@ tr.trim-row td {
 }
 tr.trim-row:hover td { background: var(--trim-bg); filter: brightness(0.96); }
 
+/* Workcenter-level summary row (Shift Crew Summary table) - visually
+   set apart from the per-operator rows below it, since it represents
+   the whole crew/workcenter's status mix, not one person's activity. */
+tr.workcenter-summary-row td {
+  font-weight: 700;
+  font-style: italic;
+  background: var(--color-accent-soft);
+  border-bottom: 2px solid var(--color-accent);
+}
+tr.workcenter-summary-row:hover td { background: var(--color-accent-soft); filter: brightness(0.97); }
+
 /* Backgauge position column - off by default (only useful for
    occasional troubleshooting, e.g. checking batch/reload detection),
    shown via the "Show backgauge position" checkbox above the table. */

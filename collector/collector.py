@@ -37,7 +37,14 @@ def run():
             except Exception as exc:
                 consecutive_errors += 1
                 print(f"[{ts.isoformat()}] poll error ({consecutive_errors}/{config.MAX_CONSECUTIVE_ERRORS}): {exc}")
-                detector.process(ts, {"auto_mode": None}, reason=str(exc))
+                try:
+                    detector.process(ts, {"auto_mode": None}, reason=str(exc))
+                except Exception as record_exc:
+                    # The original error is often the same storage problem
+                    # (e.g. a transient disk I/O error against the SQLite DB
+                    # on the network share) - if recording it also fails,
+                    # don't let that escape and crash the whole poll loop.
+                    print(f"[{ts.isoformat()}] also failed to record the error: {record_exc}")
                 if consecutive_errors >= config.MAX_CONSECUTIVE_ERRORS:
                     print("Too many consecutive errors, reconnecting...")
                     plc.close()

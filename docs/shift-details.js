@@ -60,6 +60,31 @@ async function refreshShiftSummary() {
 
   const tbody = document.querySelector("#shift-summary-table tbody");
   tbody.innerHTML = "";
+
+  // Shown first, visually distinct from the per-operator rows below -
+  // a WorkcenterLog entry that tags the whole crew together (see
+  // plex_sync/segments.py) explodes into one identical segment per
+  // operator, so several operators legitimately sharing the same
+  // Production percentage isn't a bug, but per-operator rows alone make
+  // it read as personal activity. This row answers the workcenter-level
+  // question directly (each log entry counted once, not once per
+  // operator tagged on it).
+  const ws = data.workcenter_summary;
+  if (ws && ws.total_seconds) {
+    const tr = document.createElement("tr");
+    tr.className = "workcenter-summary-row";
+    tr.innerHTML = `
+      <td>Workcenter (all crew)</td>
+      <td>${fmtHMS(ws.total_seconds)}</td>
+      <td>${fmtPct(ws.category_pct, "production")}</td>
+      <td>${fmtPct(ws.category_pct, "setup")}</td>
+      <td>${fmtPct(ws.category_pct, "break")}</td>
+      <td>${fmtPct(ws.category_pct, "idle")}</td>
+      <td>${fmtPct(ws.category_pct, "other")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
   for (const op of data.operators || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
