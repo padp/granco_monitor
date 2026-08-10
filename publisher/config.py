@@ -14,7 +14,10 @@ from collector.config import DB_PATH as COLLECTOR_DB_PATH  # noqa: F401  (re-exp
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_FILE = os.path.join(_PROJECT_ROOT, "secret", "granco_publisher.txt")
-CHECKPOINT_DB_PATH = os.path.join(_PROJECT_ROOT, "db", "publisher_state.db")
+# See the GRANCO_DB_DIR comment in collector/config.py - same reasoning, same
+# env var, so the checkpoint db lands next to saw_monitor.db either way.
+_DB_DIR = os.environ.get("GRANCO_DB_DIR", os.path.join(_PROJECT_ROOT, "db"))
+CHECKPOINT_DB_PATH = os.path.join(_DB_DIR, "publisher_state.db")
 
 SYNC_INTERVAL_S = 10
 BATCH_LIMIT = 500

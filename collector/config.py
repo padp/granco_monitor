@@ -167,7 +167,14 @@ RECONNECT_RECOVERY_HISTORY_LOOKBACK = 6
 
 # --- Storage ---
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(_PROJECT_ROOT, "db", "saw_monitor.db")
+# SQLite's locking depends on file-lock primitives that SMB only partially
+# emulates, which produces real "database is locked" / disk I/O errors under
+# concurrent access from a network share. GRANCO_DB_DIR lets deployments move
+# the DB to local disk (all three Granco processes normally run on the same
+# machine, so there's no need for the DB itself to be on the share) while
+# defaulting to the historical project-relative location for anyone else.
+_DB_DIR = os.environ.get("GRANCO_DB_DIR", os.path.join(_PROJECT_ROOT, "db"))
+DB_PATH = os.path.join(_DB_DIR, "saw_monitor.db")
 
 RAW_BUFFER_RETENTION_HOURS = 48
 RAW_BUFFER_PRUNE_INTERVAL_S = 300

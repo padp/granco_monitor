@@ -659,6 +659,20 @@ def _detect_runs(items: list, ts_key: str, part_key: str) -> list:
     return runs
 
 
+def _part_prefix(part_number):
+    """The leading numeric prefix before the X (input/extrusion) or S
+    (output/saw) suffix letter - e.g. "1307X-2" and "1307S-1" share
+    prefix "1307". Confirmed with the user: this prefix always matches
+    between an input part and its real corresponding output part, even
+    though the full strings never do (see _detect_part_runs). Returns
+    None if the part doesn't match the expected pattern, so it's never
+    treated as a false confirmation."""
+    if not part_number:
+        return None
+    m = re.match(r"^(\d+)[A-Za-z]", part_number)
+    return m.group(1) if m else None
+
+
 def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
     """Pieces cut, cross-checked between the PLC and Plex - matched by
     overlapping time windows, NOT by part number string equality. The
@@ -675,6 +689,20 @@ def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
     answers "what came in vs what went out during the same span of
     time," which a plain per-part total comparison can't, since the two
     systems literally track different part identities.
+
+    A raw time overlap alone isn't enough, though - confirmed live
+    2026-08-10: there's a real processing/logging lag between the PLC
+    finishing an input part and Plex recording that job's output
+    completion, so a PLC run's window routinely overlaps BOTH the tail
+    of the previous job's still-being-logged output AND the start of
+    its own - producing one correct pairing and one spurious one purely
+    from that lag, not a real correspondence. _part_prefix breaks the
+    tie: confirmed with the user that an input part's leading numeric
+    prefix always matches its true output part's prefix (e.g.
+    "1307X-2" <-> "1307S-1"), so an overlap is only accepted as a real
+    pairing when both sides' prefixes match - a plain time overlap with
+    a mismatched prefix is discarded rather than kept as a (wrong)
+    match, so it doesn't corrupt piece-count averages downstream.
 
     Generalized over an arbitrary [ts_start, ts_end) window (either bound
     may be None, meaning unbounded) rather than one shift, so it backs
@@ -736,7 +764,12 @@ def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
             for plex_run in plex_runs
             if plc_run["start"] <= plex_run["end"] and plex_run["start"] <= plc_run["end"]
         ]
-        if not overlaps:
+        plc_prefix = _part_prefix(plc_run["part"])
+        confirmed = [
+            plex_run for plex_run in overlaps
+            if plc_prefix is not None and _part_prefix(plex_run["part"]) == plc_prefix
+        ]
+        if not confirmed:
             result.append({
                 "window_start": plc_run["start"], "window_end": plc_run["end"],
                 "input_part": plc_run["part"], "output_part": None,
@@ -744,7 +777,7 @@ def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
                 "plex_pieces": None, "plex_event_count": None, "plex_scrap": None,
             })
             continue
-        for plex_run in overlaps:
+        for plex_run in confirmed:
             matched_plex_ids.add(id(plex_run))
             result.append({
                 "window_start": min(plc_run["start"], plex_run["start"]),

@@ -8,7 +8,10 @@ import os
 import sqlite3
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(_PROJECT_ROOT, "db", "plex_sync.db")
+# See the GRANCO_DB_DIR comment in collector/config.py - same reasoning, same
+# env var, so this lands next to the other two dbs either way.
+_DB_DIR = os.environ.get("GRANCO_DB_DIR", os.path.join(_PROJECT_ROOT, "db"))
+DB_PATH = os.path.join(_DB_DIR, "plex_sync.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS operator_segments (

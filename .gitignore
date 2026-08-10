@@ -14,8 +14,9 @@ discovered_tags.csv
 workcenter_log_sample.json
 clockedin_sample.json
 
-# One-off diagnostic script - queries real production data, not part of the app
+# One-off diagnostic/admin scripts - not part of the app
 diagnose_missed_cuts.py
+update_recipe_backgauge_pressure.py
 
 # Python
 __pycache__/
