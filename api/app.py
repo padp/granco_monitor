@@ -541,52 +541,71 @@ def staffing_current():
     shift crew summary's status mix below, where it's the right tool,
     but it's a worse fit for "right now" - and for "how long were they
     actually clocked in", which is exactly why this replaced the
-    earlier clocked_in_now snapshot). "Here right now" = any session
-    still open (clockout_ts not set).
+    earlier clocked_in_now snapshot).
 
-    This whole design depends on plex_sync actually polling every
-    minute (see its own docstring) - if that process dies, an open
-    session just sits there looking "current" forever, with clocked
-    time silently growing against the real clock, and nobody who
-    clocked in/out during the outage ever gets seen at all (this report
-    is a live snapshot, not a historical log - a gap can't be
-    backfilled after the fact). Confirmed live 2026-08-01: plex_sync
-    crashed on startup on a newly-migrated PC (missing
-    `pip install -r requirements.txt`) and sat dead for 25+ hours before
-    anyone noticed, since the dashboard had no way to distinguish
-    "these people are still clocked in" from "nobody's checked in 25
-    hours." synced_at/stale below exist so that distinction is visible
-    immediately instead of silently wrong - synced_at is the most
-    recent last_seen_ts across ALL clockin_sessions (open or closed),
-    not just currently-open ones, so "nobody happens to be clocked in
-    right now" (a normal state, zero open rows) isn't confused with
-    "the sync process has stopped running" (no row of any kind touched
-    recently)."""
+    "Here right now" used to mean "any session with clockout_ts still
+    unset" - dropped 2026-08-24 because that flag is only as reliable
+    as plex_sync's own LOCAL bookkeeping (it tracks "previously open"
+    clockin_keys itself, see _sync_clockin_sessions, so it knows which
+    ones to close when they disappear from a poll). If that local state
+    ever resets - a fresh install, a moved machine, exactly what
+    happened migrating to a new office PC - any session that was open
+    in Mongo before the reset never gets closed, since the new process
+    has no memory it was ever open. That's a phantom "still clocked in"
+    that persists indefinitely, even while sync itself runs perfectly
+    healthily (so the stale check below didn't catch it either).
+
+    Instead: every genuinely current roster member gets last_seen_ts
+    refreshed to "now" on EVERY successful poll regardless of local
+    state (see _sync_clockin_sessions - "refreshed" is the WHOLE
+    current roster each cycle, not a delta, and close_sessions never
+    touches last_seen_ts on the way out - it only sets clockout_ts/open,
+    so a just-closed session's last_seen_ts stays at whenever they were
+    last actually seen). So "current operators" is whoever BOTH shares
+    the single most recent last_seen_ts across the whole collection AND
+    hasn't been explicitly closed - a genuinely-present person always
+    has both set together from the same refreshed entry on a given
+    tick, so requiring both is what actually makes this bulletproof.
+    last_seen_ts alone isn't quite enough on its own either: a session
+    that was JUST closed can still happen to hold the single freshest
+    last_seen_ts in the whole collection (its own last real sighting,
+    one tick before it was noticed missing) if nothing newer exists yet
+    - confirmed by a test catching exactly that edge case - so the
+    clockout_ts check still matters, just no longer alone.
+
+    synced_at doubles as both "when did this last update" and the key
+    for "who was in that update" - stale flags when it's been too long
+    since the last successful poll (plex_sync down entirely), which is
+    a separate failure mode from the local-state-drift one this replaces."""
     db = get_db()
-    rows = list(
-        db.clockin_sessions.find(
-            {"clockout_ts": None},
-            sort=[("employee_name", 1)],
-            projection={"_id": False, "employee_name": True, "last_seen_ts": True},
-        )
-    )
-    operators = sorted({r["employee_name"] for r in rows if r.get("employee_name")})
-    as_of = max((r["last_seen_ts"] for r in rows), default=None) if rows else None
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
 
     most_recent = db.clockin_sessions.find_one(sort=[("last_seen_ts", -1)], projection={"last_seen_ts": True})
     synced_at = most_recent["last_seen_ts"] if most_recent else None
-    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
     stale = (
         synced_at is None
         or (now - datetime.fromisoformat(synced_at)).total_seconds() > STAFFING_STALE_THRESHOLD_S
     )
+
+    rows = (
+        list(
+            db.clockin_sessions.find(
+                {"last_seen_ts": synced_at, "clockout_ts": None},
+                sort=[("employee_name", 1)],
+                projection={"_id": False, "employee_name": True},
+            )
+        )
+        if synced_at
+        else []
+    )
+    operators = sorted({r["employee_name"] for r in rows if r.get("employee_name")})
 
     return jsonify(
         operators=operators,
         count=len(operators),
         min_required=MIN_STAFF_COUNT,
         understaffed=len(operators) < MIN_STAFF_COUNT,
-        as_of=as_of,
+        as_of=synced_at,
         synced_at=synced_at,
         stale=stale,
     )
