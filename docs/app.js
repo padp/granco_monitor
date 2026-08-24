@@ -137,27 +137,6 @@ function gradeCellHtml(cycle) {
   </span>`;
 }
 
-async function refreshSchedule() {
-  const res = await fetch(`${API_BASE}/api/schedule/current`);
-  const data = await res.json();
-
-  document.getElementById("schedule-label").textContent =
-    data.date && data.shift ? `${data.date} — ${data.shift}` : "-";
-
-  const tbody = document.querySelector("#schedule-mirror-table tbody");
-  tbody.innerHTML = "";
-  for (const row of data.rows || []) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${row.part_number || "-"}</td>
-      <td>${row.job_number || "-"}</td>
-      <td>${row.racks ?? "-"}</td>
-      <td>${row.scheduled_time || "-"}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 // Same 4-band feel as the per-cut Grade column, just against a 0-100
@@ -249,7 +228,6 @@ async function refreshAll() {
       refreshStatus(),
       refreshCycles(),
       refreshStaffing(),
-      refreshSchedule(),
       refreshLeaderboard(),
       refreshActiveShifts(),
     ]);

@@ -641,3 +641,113 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
   font-weight: 700;
   font-size: 0.85rem;
 }
+
+/* ------------------------------------------------------------ */
+/* Workcenter notes + schedule board (board.html)                 */
+/* ------------------------------------------------------------ */
+
+/* Same unattended-TV convention as the main dashboard - a fixed
+   half/half grid instead of a scrolling page, since this also runs at
+   the workcenter (OptiSigns drives which page is on screen, not the
+   viewer, so nothing here should ever need scrolling to be read). */
+main.board-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 1.25rem 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+.board-grid .col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.board-grid .col > .card { margin-bottom: 0; }
+
+.notes-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Meant to be read from across the shop floor - large and generous
+   line-height rather than the compact body copy used elsewhere. */
+.notes-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 1.6rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notes-text.notes-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 1.1rem;
+}
+
+.notes-meta {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.schedule-col { min-height: 0; }
+
+.shift-block { flex: 0 0 auto; }
+
+/* Previous/next shifts are context, not the point - shown small and
+   quiet so the current shift reads as the obvious centerpiece. */
+.shift-block-adjacent {
+  padding: 0.6rem 0.9rem;
+  opacity: 0.75;
+}
+.shift-block-adjacent h2 { margin-bottom: 0.4rem; }
+.shift-block-adjacent table { font-size: 0.8rem; }
+
+/* The current shift is the centerpiece the scheduling team asked for -
+   same accent treatment as the leaderboard's #1 row, just applied to a
+   whole card instead of one list item. */
+.shift-block-current {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--color-accent);
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
+}
+.shift-block-current h2 {
+  color: var(--color-accent);
+  font-size: 1rem;
+}
+.shift-block-current .overflow-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The row matching what's actually running on the PLC right now -
+   same visual language as the workcenter crew-summary row elsewhere. */
+tr.current-part-row td {
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  border-bottom: 2px solid var(--color-accent);
+}
+tr.current-part-row:hover td { background: var(--color-accent-soft); filter: brightness(0.97); }
+
+@media (max-width: 900px) {
+  main.board-grid { display: block; padding: 0 1.5rem; }
+  .board-grid .col { display: block; }
+  .board-grid .col > .card { margin-bottom: 1.25rem; }
+  .notes-text { overflow-y: visible; }
+  .shift-block-current .overflow-wrap { overflow-y: visible; }
+}

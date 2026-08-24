@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Board</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="tv-page">
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Notes &amp; Schedule</span>
+    <div style="display: flex; align-items: baseline; gap: 1rem;">
+      <a class="app-header-subtitle app-header-link" href="index.html">&larr; Dashboard</a>
+      <span id="last-updated" class="app-header-subtitle">-</span>
+    </div>
+  </header>
+
+  <main class="board-grid">
+    <div class="col">
+      <section id="notes-card" class="card notes-card">
+        <h2>Notes for Operators</h2>
+        <div id="notes-text" class="notes-text">-</div>
+        <div id="notes-meta" class="notes-meta"></div>
+      </section>
+    </div>
+
+    <div class="col schedule-col">
+      <section id="previous-shift-block" class="card shift-block shift-block-adjacent">
+        <h2 id="previous-shift-label">Previous Shift</h2>
+        <div class="overflow-wrap">
+          <table id="previous-shift-table">
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>Job Number</th>
+                <th>Racks</th>
+                <th>Scheduled Time</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="current-shift-block" class="card shift-block shift-block-current">
+        <h2 id="current-shift-label">Current Shift</h2>
+        <div class="overflow-wrap">
+          <table id="current-shift-table">
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>Job Number</th>
+                <th>Racks</th>
+                <th>Scheduled Time</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="next-shift-block" class="card shift-block shift-block-adjacent">
+        <h2 id="next-shift-label">Next Shift</h2>
+        <div class="overflow-wrap">
+          <table id="next-shift-table">
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>Job Number</th>
+                <th>Racks</th>
+                <th>Scheduled Time</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="board.js"></script>
+</body>
+</html>

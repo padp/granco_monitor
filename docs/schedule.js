@@ -40,6 +40,47 @@ function showSchedule() {
   document.getElementById("current-email").textContent = localStorage.getItem(EMAIL_KEY) || "-";
 }
 
+async function loadNotes() {
+  try {
+    const res = await fetch(`${API_BASE}/api/notes`);
+    const data = await res.json();
+    document.getElementById("notes-textarea").value = data.text || "";
+  } catch {
+    // leave the textarea as-is - the save button will still work
+  }
+}
+
+document.getElementById("notes-save-btn").addEventListener("click", async () => {
+  const status = document.getElementById("notes-save-status");
+  const token = getToken();
+  if (!token) {
+    showAuth("Your session expired - please log in again.");
+    return;
+  }
+
+  status.textContent = "Saving...";
+  try {
+    const res = await fetch(`${API_BASE}/api/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ text: document.getElementById("notes-textarea").value }),
+    });
+    if (res.status === 401) {
+      clearSession();
+      showAuth("Your session expired - please log in again.");
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      status.textContent = data.error || "Save failed.";
+      return;
+    }
+    status.textContent = "Saved.";
+  } catch (err) {
+    status.textContent = `Network error: ${err.message}`;
+  }
+});
+
 authToggle.addEventListener("click", () => {
   authMode = authMode === "login" ? "signup" : "login";
   authTitle.textContent = authMode === "login" ? "Log In" : "Create Account";
@@ -69,6 +110,7 @@ authForm.addEventListener("submit", async (e) => {
     showSchedule();
     await loadCurrentShiftDefaults();
     await loadScheduleRows();
+    await loadNotes();
   } catch (err) {
     authError.textContent = `Network error: ${err.message}`;
   }
@@ -195,6 +237,7 @@ async function init() {
   showSchedule();
   await loadCurrentShiftDefaults();
   await loadScheduleRows();
+  await loadNotes();
 }
 
 init();

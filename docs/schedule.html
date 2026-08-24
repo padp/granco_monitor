@@ -39,6 +39,16 @@
         <button type="button" id="logout-btn" class="btn btn-link">Log out</button>
       </div>
 
+      <h2>Notes for Operators</h2>
+      <p class="form-status" style="margin-top: 0;">Shown on the board display - overwrites the current message, not a log.</p>
+      <textarea id="notes-textarea" rows="4" style="width: 100%; font: inherit; padding: 0.6rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-bg); color: var(--color-text);"></textarea>
+      <div class="form-actions">
+        <button type="button" id="notes-save-btn" class="btn btn-secondary">Save Notes</button>
+        <span id="notes-save-status" class="form-status"></span>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid var(--color-border); margin: 1.25rem 0;">
+
       <div class="form-grid form-grid-inline">
         <label>
           Date

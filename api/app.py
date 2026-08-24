@@ -1137,6 +1137,68 @@ def schedule_current():
     return jsonify(_schedule_doc(date, shift))
 
 
+def _adjacent_shift(date_str: str, shift_name: str, delta: int) -> tuple:
+    """Steps +1/-1 through SHIFT_NAMES' fixed daily cycle, rolling the
+    date across the First<->Third boundary. delta must be 1 or -1."""
+    d = date.fromisoformat(date_str)
+    idx = SHIFT_NAMES.index(shift_name) + delta
+    if idx >= len(SHIFT_NAMES):
+        return (d + timedelta(days=1)).isoformat(), SHIFT_NAMES[idx - len(SHIFT_NAMES)]
+    if idx < 0:
+        return (d - timedelta(days=1)).isoformat(), SHIFT_NAMES[idx + len(SHIFT_NAMES)]
+    return date_str, SHIFT_NAMES[idx]
+
+
+@app.get("/api/schedule/board")
+def schedule_board():
+    db = get_db()
+    date_str, shift = _current_date_and_shift(datetime.now(PLANT_TZ))
+    prev_date, prev_shift = _adjacent_shift(date_str, shift, -1)
+    next_date, next_shift = _adjacent_shift(date_str, shift, 1)
+
+    latest_cycle = db.cycles.find_one(sort=[("ts", -1)], projection={"_id": False})
+    current_part_prefix = _part_prefix(latest_cycle["part_number"]) if latest_cycle else None
+
+    return jsonify(
+        previous=_schedule_doc(prev_date, prev_shift),
+        current=_schedule_doc(date_str, shift),
+        next=_schedule_doc(next_date, next_shift),
+        current_part_prefix=current_part_prefix,
+    )
+
+
+def _notes_doc() -> dict:
+    db = get_db()
+    doc = db.notes.find_one({"_id": "current"}, projection={"_id": False})
+    return doc or {"text": "", "updated_by": None, "updated_ts": None}
+
+
+@app.get("/api/notes")
+def notes_get():
+    return jsonify(_notes_doc())
+
+
+@app.post("/api/notes")
+def notes_post():
+    session = _current_session()
+    if not session:
+        return jsonify(error="unauthorized"), 401
+
+    body = request.get_json(force=True, silent=True) or {}
+    text = body.get("text") or ""
+
+    get_db().notes.update_one(
+        {"_id": "current"},
+        {"$set": {
+            "text": text,
+            "updated_by": session["email"],
+            "updated_ts": datetime.utcnow().isoformat(),
+        }},
+        upsert=True,
+    )
+    return jsonify(ok=True)
+
+
 @app.get("/health")
 def health():
     return jsonify(ok=True)
