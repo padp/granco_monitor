@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Recipes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Recipes</span>
+    <div style="display: flex; align-items: baseline; gap: 1rem;">
+      <a class="app-header-subtitle app-header-link" href="index.html">&larr; Back to dashboard</a>
+      <span id="last-updated" class="app-header-subtitle">-</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card card-wide">
+      <h2>Recipe Library</h2>
+      <div class="status-details" style="margin-bottom: 0.5rem;">
+        The PLC's stored recipe library, synced every 20-30 minutes. Read-only - edit recipes on the machine itself.
+      </div>
+      <div id="recipes-stale-banner" class="stale-banner hidden"></div>
+
+      <div class="form-grid form-grid-inline">
+        <label>
+          Search by Name
+          <input type="text" id="recipes-search" placeholder="e.g. 1307">
+        </label>
+        <div class="form-actions">
+          <button type="button" id="recipes-search-btn" class="btn btn-primary">Search</button>
+        </div>
+      </div>
+
+      <div id="recipes-synced-at" class="status-details" style="margin: 0.5rem 0;">-</div>
+
+      <div class="overflow-wrap">
+        <table id="recipes-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Slot #</th>
+              <th>Batch Height</th>
+              <th>Batch Width</th>
+              <th>Parts/Cut</th>
+              <th>Blade Feed Rate</th>
+              <th>Cut Length</th>
+              <th>Auto Trim Dist.</th>
+              <th>Quantity</th>
+              <th>Unit</th>
+              <th>Backgauge Psi</th>
+              <th>Side Clamp Psi</th>
+              <th>Top Clamp Psi</th>
+              <th>CSQ</th>
+              <th>CCS</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="recipes.js"></script>
+</body>
+</html>

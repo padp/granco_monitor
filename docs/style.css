@@ -357,6 +357,16 @@ tr.review-flag-row:hover td { background: var(--warn-bg); filter: brightness(0.9
 #cycles-table .col-backgauge { display: none; }
 #cycles-table.show-backgauge .col-backgauge { display: table-cell; }
 
+/* recipes-table has 15 columns - way more than this page's 960px
+   max-width comfortably fits with auto layout, so the browser was
+   word-breaking header labels mid-word (e.g. "Slot #" -> "Slo"/"t #")
+   to squeeze them in instead of letting the table grow past its
+   container. Forcing headers onto one line makes the table grow wide
+   instead, which .overflow-wrap (already wrapping it) turns into a
+   horizontal scrollbar - the same fix as .review-cell's nowrap above,
+   just applied table-wide here since every column is short here. */
+#recipes-table th { white-space: nowrap; }
+
 .cycles-toggle {
   display: flex;
   align-items: center;

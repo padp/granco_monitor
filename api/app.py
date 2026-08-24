@@ -37,6 +37,13 @@ MIN_STAFF_COUNT = 3
 # sync process (confirmed live: one sat dead for 25+ hours) quickly.
 STAFFING_STALE_THRESHOLD_S = 5 * 60
 
+# recipe_sync polls the PLC's whole stored recipe library on a much
+# slower cadence than staffing (recipe_sync/config.py's
+# RECIPE_SYNC_INTERVAL_S, default 30 min) - three poll cycles' worth of
+# margin before flagging stale, same reasoning as STAFFING_STALE_THRESHOLD_S
+# above, just scaled to this endpoint's own much slower expected cadence.
+RECIPE_STALE_THRESHOLD_S = 90 * 60
+
 # Mirrors docs/app.js's GRADE_THRESHOLDS - a cut counts as "great or
 # good" (the top two grade bands) at or below this ratio. Reused here to
 # score a shift's whole week instead of one row. Keep both files in sync.
@@ -209,7 +216,9 @@ def ingest():
     db = get_db()
     counts = {}
 
-    for table_name in ("cycles", "state_events", "operator_segments", "production_events", "clockin_sessions"):
+    for table_name in (
+        "cycles", "state_events", "operator_segments", "production_events", "clockin_sessions", "recipe_library",
+    ):
         rows = body.get(table_name) or []
         if rows:
             db[table_name].bulk_write(
@@ -1280,6 +1289,35 @@ def notes_post():
         upsert=True,
     )
     return jsonify(ok=True)
+
+
+@app.get("/api/recipes")
+def recipes_get():
+    """Browse the PLC's stored recipe library (RECIPE_STORED[0..499],
+    synced by recipe_sync/ - see that module for the read/upsert side).
+    Only populated slots by default (the ~dozens of real recipes, not
+    the hundreds of unused ones) - optionally narrowed further by ?q=,
+    a case-insensitive substring match against the recipe name, same
+    pattern as /api/clockin-sessions' employee filter."""
+    db = get_db()
+    query = {"populated": True}
+    q = (request.args.get("q") or "").strip()
+    if q:
+        query["name"] = {"$regex": re.escape(q), "$options": "i"}
+
+    recipes = list(
+        db.recipe_library.find(query, projection={"_id": False}, sort=[("name", 1)])
+    )
+
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    updated_ts_values = [r["updated_ts"] for r in recipes if r.get("updated_ts")]
+    synced_at = max(updated_ts_values) if updated_ts_values else None
+    stale = (
+        synced_at is None
+        or (now - datetime.fromisoformat(synced_at)).total_seconds() > RECIPE_STALE_THRESHOLD_S
+    )
+
+    return jsonify(recipes=recipes, synced_at=synced_at, stale=stale)
 
 
 @app.get("/health")
