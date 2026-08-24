@@ -139,7 +139,7 @@ function currentRows() {
       part_number: tr.querySelector(".col-part").value.trim(),
       job_number: tr.querySelector(".col-job").value.trim(),
       racks: tr.querySelector(".col-racks").value ? Number(tr.querySelector(".col-racks").value) : null,
-      scheduled_time: tr.querySelector(".col-time").value,
+      estimated_hours: tr.querySelector(".col-hours").value ? Number(tr.querySelector(".col-hours").value) : null,
     });
   }
   return rows;
@@ -153,7 +153,7 @@ function addRow(row) {
     <td><input type="text" class="col-part" value="${r.part_number ?? ""}"></td>
     <td><input type="text" class="col-job" value="${r.job_number ?? ""}"></td>
     <td><input type="number" min="0" class="col-racks" value="${r.racks ?? ""}"></td>
-    <td><input type="time" class="col-time" value="${r.scheduled_time ?? ""}"></td>
+    <td><input type="number" min="0" step="0.01" placeholder="e.g. 2.25" class="col-hours" value="${r.estimated_hours ?? ""}"></td>
     <td><button type="button" class="btn btn-link remove-row">Remove</button></td>
   `;
   tr.querySelector(".remove-row").addEventListener("click", () => tr.remove());

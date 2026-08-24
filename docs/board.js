@@ -8,6 +8,10 @@ function fmtTs(iso) {
   return new Date(iso).toLocaleString();
 }
 
+function fmtHours(value) {
+  return value === null || value === undefined || value === "" ? "-" : `${value}h`;
+}
+
 async function refreshNotes() {
   const res = await fetch(`${API_BASE}/api/notes`);
   const data = await res.json();
@@ -34,7 +38,7 @@ function renderShiftTable(tableId, doc, currentPartPrefix) {
       <td>${row.part_number || "-"}</td>
       <td>${row.job_number || "-"}</td>
       <td>${row.racks ?? "-"}</td>
-      <td>${row.scheduled_time || "-"}</td>
+      <td>${fmtHours(row.estimated_hours)}</td>
     `;
     tbody.appendChild(tr);
   }

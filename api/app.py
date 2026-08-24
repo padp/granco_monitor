@@ -1114,7 +1114,7 @@ def schedule_post():
             "part_number": row.get("part_number") or "",
             "job_number": row.get("job_number") or "",
             "racks": row.get("racks"),
-            "scheduled_time": row.get("scheduled_time") or "",
+            "estimated_hours": row.get("estimated_hours"),
         }
         for row in rows
     ]
