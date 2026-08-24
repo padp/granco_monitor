@@ -531,6 +531,66 @@ def shifts_active_count():
     return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
 
 
+def _latest_clockin_sync_ts(db):
+    """The single most recent last_seen_ts across the whole
+    clockin_sessions collection - see _clockin_effective_end's docstring
+    for what this is actually used for (distinguishing a genuinely-open
+    session from a phantom one)."""
+    most_recent = db.clockin_sessions.find_one(sort=[("last_seen_ts", -1)], projection={"last_seen_ts": True})
+    return most_recent["last_seen_ts"] if most_recent else None
+
+
+def _clockin_effective_end(session, latest_sync_ts, now):
+    """A clockin_sessions row's real end, for computing both "is this
+    person still clocked in" and "how long were they clocked in" at any
+    point in time - not just "clockout_ts is still unset".
+
+    That used to be the whole check, dropped 2026-08-24 because it's
+    only as reliable as plex_sync's own LOCAL bookkeeping (it tracks
+    "previously open" clockin_keys itself, see _sync_clockin_sessions,
+    so it knows which ones to close when they disappear from a poll).
+    If that local state ever resets - a fresh install, a moved machine,
+    exactly what happened migrating to a new office PC - any session
+    that was open in Mongo before the reset never gets closed, since the
+    new process has no memory it was ever open. That's a phantom "still
+    clocked in" that persists indefinitely, even while sync itself runs
+    perfectly healthily (so a plain staleness check doesn't catch it
+    either) - and since it's a real Mongo document, not a live snapshot,
+    it also keeps showing up as "still clocked in" on every OTHER shift
+    queried afterward too, not just "right now".
+
+    Instead: every genuinely current roster member gets last_seen_ts
+    refreshed to "now" on EVERY successful poll regardless of local
+    state (see _sync_clockin_sessions - "refreshed" is the WHOLE current
+    roster each cycle, not a delta, and close_sessions never touches
+    last_seen_ts on the way out - it only sets clockout_ts/open, so a
+    just-closed session's last_seen_ts stays at whenever they were last
+    actually seen). So a session is genuinely still open only if it
+    BOTH has no clockout_ts AND shares the single most recent
+    last_seen_ts across the whole collection - a genuinely-present
+    person always has both set together from the same refreshed entry
+    on a given tick, so requiring both is what actually makes this
+    bulletproof (last_seen_ts alone isn't enough: a session that was
+    JUST closed can still happen to hold the single freshest
+    last_seen_ts in the whole collection - its own last real sighting,
+    one tick before it was noticed missing - if nothing newer exists yet,
+    confirmed by a test catching exactly that edge case).
+
+    A phantom session's real (never recorded) end is treated as its own
+    last_seen_ts - the last time it was actually confirmed present -
+    rather than extending indefinitely to "now" or a shift's end.
+
+    Returns (effective_end, genuinely_open)."""
+    clockout_ts = session.get("clockout_ts")
+    if clockout_ts:
+        return datetime.fromisoformat(clockout_ts), False
+    last_seen_ts = session.get("last_seen_ts")
+    genuinely_open = latest_sync_ts is not None and last_seen_ts == latest_sync_ts
+    if genuinely_open:
+        return now, True
+    return (datetime.fromisoformat(last_seen_ts) if last_seen_ts else now), False
+
+
 @app.get("/api/staffing/current")
 def staffing_current():
     """clockin_sessions (built by polling Plex's own "currently clocked
@@ -543,45 +603,20 @@ def staffing_current():
     actually clocked in", which is exactly why this replaced the
     earlier clocked_in_now snapshot).
 
-    "Here right now" used to mean "any session with clockout_ts still
-    unset" - dropped 2026-08-24 because that flag is only as reliable
-    as plex_sync's own LOCAL bookkeeping (it tracks "previously open"
-    clockin_keys itself, see _sync_clockin_sessions, so it knows which
-    ones to close when they disappear from a poll). If that local state
-    ever resets - a fresh install, a moved machine, exactly what
-    happened migrating to a new office PC - any session that was open
-    in Mongo before the reset never gets closed, since the new process
-    has no memory it was ever open. That's a phantom "still clocked in"
-    that persists indefinitely, even while sync itself runs perfectly
-    healthily (so the stale check below didn't catch it either).
-
-    Instead: every genuinely current roster member gets last_seen_ts
-    refreshed to "now" on EVERY successful poll regardless of local
-    state (see _sync_clockin_sessions - "refreshed" is the WHOLE
-    current roster each cycle, not a delta, and close_sessions never
-    touches last_seen_ts on the way out - it only sets clockout_ts/open,
-    so a just-closed session's last_seen_ts stays at whenever they were
-    last actually seen). So "current operators" is whoever BOTH shares
-    the single most recent last_seen_ts across the whole collection AND
-    hasn't been explicitly closed - a genuinely-present person always
-    has both set together from the same refreshed entry on a given
-    tick, so requiring both is what actually makes this bulletproof.
-    last_seen_ts alone isn't quite enough on its own either: a session
-    that was JUST closed can still happen to hold the single freshest
-    last_seen_ts in the whole collection (its own last real sighting,
-    one tick before it was noticed missing) if nothing newer exists yet
-    - confirmed by a test catching exactly that edge case - so the
-    clockout_ts check still matters, just no longer alone.
+    See _clockin_effective_end for what "genuinely current" means and
+    why it's not just "clockout_ts is still unset" - shift_summary below
+    uses the exact same helper for its Shift Crew Summary and Clock-in
+    Sessions sections, so a phantom session can't show up as present
+    there either.
 
     synced_at doubles as both "when did this last update" and the key
     for "who was in that update" - stale flags when it's been too long
     since the last successful poll (plex_sync down entirely), which is
-    a separate failure mode from the local-state-drift one this replaces."""
+    a separate failure mode from the local-state-drift one above."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
 
-    most_recent = db.clockin_sessions.find_one(sort=[("last_seen_ts", -1)], projection={"last_seen_ts": True})
-    synced_at = most_recent["last_seen_ts"] if most_recent else None
+    synced_at = _latest_clockin_sync_ts(db)
     stale = (
         synced_at is None
         or (now - datetime.fromisoformat(synced_at)).total_seconds() > STAFFING_STALE_THRESHOLD_S
@@ -1056,6 +1091,7 @@ def shift_summary():
     # operator can be clocked in with zero logged activity, or vice versa
     # if clock-in tracking hadn't started yet - see the fallback below).
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    latest_sync_ts = _latest_clockin_sync_ts(db)
     clocked_seconds_by_name = {}
     clockin_session_rows = []
     date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
@@ -1078,12 +1114,18 @@ def shift_summary():
         )
         for session in sessions:
             clockin_ts = datetime.fromisoformat(session["clockin_ts"])
-            clockout_ts = datetime.fromisoformat(session["clockout_ts"]) if session.get("clockout_ts") else None
+            effective_end_raw, still_open = _clockin_effective_end(session, latest_sync_ts, now)
             # Clocked time attributed to THIS shift is clipped to its
             # window - a session spanning multiple shifts shouldn't have
             # its whole multi-shift duration dumped onto just one of them.
-            effective_end = min(clockout_ts or now, end)
+            effective_end = min(effective_end_raw, end)
             duration = max((effective_end - max(clockin_ts, start)).total_seconds(), 0.0)
+            if duration <= 0:
+                # No real overlap with this shift's window - most often a
+                # phantom session (see _clockin_effective_end) whose
+                # last real sighting was well before this shift even
+                # started, not someone who was actually here.
+                continue
             name = session.get("employee_name")
             if name:
                 clocked_seconds_by_name[name] = clocked_seconds_by_name.get(name, 0.0) + duration
@@ -1092,7 +1134,7 @@ def shift_summary():
                 "clockin_ts": session["clockin_ts"],
                 "clockout_ts": session.get("clockout_ts"),
                 "duration_seconds": duration,
-                "still_clocked_in": clockout_ts is None,
+                "still_clocked_in": still_open,
             })
     clockin_session_rows.sort(key=lambda r: r["clockin_ts"])
 
