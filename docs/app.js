@@ -236,7 +236,7 @@ async function refreshCycles() {
       <td>${fmtSeconds(cycle.cut_length)}</td>
       <td class="col-backgauge">${fmtSeconds(cycle.backgauge_position)}</td>
       <td>${cycle.parts_per_cut ?? "-"}</td>
-      <td class="trim-reload-cell"><input type="checkbox" disabled ${cycle.is_trim_cut ? "checked" : ""}></td>
+      <td class="trim-reload-cell">${cycle.is_trim_cut ? "✅" : "⬜"}</td>
       <td>${gradeCellHtml(cycle)}</td>
     `;
     tbody.appendChild(tr);

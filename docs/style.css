@@ -274,9 +274,6 @@ th {
 .trim-reload-cell {
   text-align: center;
 }
-.trim-reload-cell input[type="checkbox"] {
-  vertical-align: middle;
-}
 
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--color-accent-soft); }
