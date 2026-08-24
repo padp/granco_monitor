@@ -822,6 +822,44 @@ def _detect_part_runs(db, ts_start: str | None, ts_end: str | None) -> list:
     return result
 
 
+# Ratios closer than this to a whole number (2, 3, ...) count as "roughly
+# a multiple" rather than ordinary count noise.
+_REVIEW_RATIO_TOLERANCE = 0.15
+
+# Below this many pieces, almost any ratio can land near a whole number
+# by pure coincidence (e.g. 3 vs 1 "looks like" 3x off two data points) -
+# too small a sample to flag.
+_REVIEW_MIN_PIECES = 10
+
+
+def _multiple_mismatch_review(plc_pieces, plex_pieces):
+    """Flags a PLC/Plex pairing where one side's piece count is roughly a
+    whole-number multiple of the other's - the signature of parts_per_cut
+    not matching what was physically loaded. parts_per_cut is an
+    operator-entered recipe value the PLC trusts as-is, not something it
+    verifies against what's actually clamped in (see _detect_part_runs) -
+    so if operators only load, say, half the recipe's intended pieces per
+    cut, the PLC's count keeps assuming the full amount while Plex's
+    count reflects what was really produced, and the two land at ~2x
+    apart. Confirmed by the user against a real 1357 job. Returns a
+    human-readable reason, or None if the pairing looks normal."""
+    if not plc_pieces or not plex_pieces:
+        return None
+    if plc_pieces < _REVIEW_MIN_PIECES or plex_pieces < _REVIEW_MIN_PIECES:
+        return None
+    larger, smaller = max(plc_pieces, plex_pieces), min(plc_pieces, plex_pieces)
+    ratio = larger / smaller
+    nearest = round(ratio)
+    if nearest < 2 or abs(ratio - nearest) / nearest > _REVIEW_RATIO_TOLERANCE:
+        return None
+    higher_side = "PLC" if plc_pieces > plex_pieces else "Plex"
+    lower_side = "Plex" if higher_side == "PLC" else "PLC"
+    return (
+        f"{higher_side} count is ~{nearest}x the {lower_side} count - "
+        "check if operators loaded the full recipe quantity per cut."
+    )
+
+
 def _production_by_part(db, shift_label: str) -> list:
     """Thin per-shift wrapper kept for /api/shift/summary's existing
     behavior - see _detect_part_runs for the actual grouping/pairing
@@ -831,7 +869,10 @@ def _production_by_part(db, shift_label: str) -> list:
     if not date_str or shift_name not in SHIFT_NAMES:
         return []
     start, end = _shift_window(date_str, shift_name)
-    return _detect_part_runs(db, start.isoformat(), end.isoformat())
+    runs = _detect_part_runs(db, start.isoformat(), end.isoformat())
+    for run in runs:
+        run["review_flag"] = _multiple_mismatch_review(run.get("plc_pieces"), run.get("plex_pieces"))
+    return runs
 
 
 # A resync only ever needs to look back as far as the most recently

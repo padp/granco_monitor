@@ -116,6 +116,7 @@ async function refreshShiftSummary() {
   prodTbody.innerHTML = "";
   for (const p of data.production_by_part || []) {
     const tr = document.createElement("tr");
+    if (p.review_flag) tr.classList.add("review-flag-row");
     tr.innerHTML = `
       <td>${fmtTimeWindow(p.window_start, p.window_end)}</td>
       <td>${p.input_part ?? "-"}</td>
@@ -124,6 +125,7 @@ async function refreshShiftSummary() {
       <td>${fmtNum(p.plc_cut_count)}</td>
       <td>${fmtNum(p.plex_pieces)}</td>
       <td>${fmtNum(p.plex_event_count)}</td>
+      <td class="review-cell">${p.review_flag ? `<span title="${p.review_flag}">&#9888;&#65039; review</span>` : ""}</td>
     `;
     prodTbody.appendChild(tr);
   }

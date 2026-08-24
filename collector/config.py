@@ -124,11 +124,19 @@ BLADE_RETURN_SPEED = 600.0
 BACKGAUGE_ADVANCE_SPEED_MM_PER_S = 150.0
 
 # Known dead-cycle constant described by the user: time for the backgauge
-# to return home after finishing a batch (a per-BATCH event, distinct
-# from the blade's own per-CUT in/out stroke, which BLADE_RETURN_SPEED
-# above already covers). NOT YET MEASURED. Leave as None until known -
-# theoretical_duration_s will simply omit this term.
-BACKGAUGE_RETURN_TIME_S = None
+# to return home after finishing a batch, dump the previous batch's tail
+# cuts to scrap, batch/clamp the next group, and bring it into the saw -
+# a per-BATCH event, distinct from the blade's own per-CUT in/out stroke
+# (BLADE_RETURN_SPEED above). This isn't the operator's fault, so it
+# shouldn't count against them in the theoretical/actual comparison.
+#
+# Measured 2026-08-24 from live production (33 post-reload cycles across
+# 4 different parts, /api/cycles/recent): actual_duration - theoretical
+# clusters tightly around 45-50s for genuine reloads, with a handful of
+# multi-minute outliers (real operator breaks/waits between batches, not
+# reload mechanics) - median rather than mean specifically to resist
+# those outliers. Median came out to 49.5s; rounded to 50.
+BACKGAUGE_RETURN_TIME_S = 50.0
 
 # CURRENT_RECIPE.PCL (cut length) is in mm; CURRENT_RECIPE.ATD (auto trim
 # distance) is already in inches (confirmed: a recipe with ATD=0.75

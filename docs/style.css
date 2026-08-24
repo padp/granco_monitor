@@ -21,6 +21,9 @@
   --trim: #b45309;
   --trim-bg: #fef3e2;
 
+  --warn: #dc2626;
+  --warn-bg: #fef2f2;
+
   --grade-green: #16a34a;
   --grade-yellow: #ca8a04;
   --grade-orange: #ea580c;
@@ -41,6 +44,9 @@
 
     --trim: #fbbf24;
     --trim-bg: #3a2e14;
+
+    --warn: #f87171;
+    --warn-bg: #3a1414;
   }
 }
 
@@ -328,6 +334,22 @@ tr.workcenter-summary-row td {
   border-bottom: 2px solid var(--color-accent);
 }
 tr.workcenter-summary-row:hover td { background: var(--color-accent-soft); filter: brightness(0.97); }
+
+/* Pieces Cut row where the PLC/Plex piece counts land near a whole-
+   number multiple of each other - the signature of operators loading
+   fewer pieces per cut than the recipe called for (see
+   _multiple_mismatch_review in api/app.py). Red rather than trim's
+   amber - this is a "go check this" flag, not just a different kind of
+   cut. */
+tr.review-flag-row td {
+  background: var(--warn-bg);
+}
+tr.review-flag-row:hover td { background: var(--warn-bg); filter: brightness(0.96); }
+.review-cell {
+  color: var(--warn);
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 /* Backgauge position column - off by default (only useful for
    occasional troubleshooting, e.g. checking batch/reload detection),
