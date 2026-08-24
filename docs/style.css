@@ -136,7 +136,7 @@ main.dashboard-grid {
   margin: 0;
   padding: 1.25rem 1.5rem;
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 3fr 2fr; /* 60/40 - was 2fr 1fr (66/33), narrowed per the user's request to leave more room for schedule/leaderboard */
   gap: 1.25rem;
 }
 
@@ -271,6 +271,13 @@ th {
   line-height: 1.25;
 }
 
+.trim-reload-cell {
+  text-align: center;
+}
+.trim-reload-cell input[type="checkbox"] {
+  vertical-align: middle;
+}
+
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--color-accent-soft); }
 
@@ -286,15 +293,23 @@ tbody tr:hover { background: var(--color-accent-soft); }
    cleanly or clipping. */
 #cycles-table { table-layout: fixed; }
 #cycles-table th, #cycles-table td { overflow: hidden; }
-#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 15%; }
+#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 14%; }
 #cycles-table th:nth-child(2), #cycles-table td:nth-child(2) { width: 10%; }
-#cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 6%; }
-#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 10%; }
-#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 10%; }
-#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 10%; }
+#cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 5%; }
+#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 9%; }
+#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 9%; }
+#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 9%; }
 #cycles-table th:nth-child(7), #cycles-table td:nth-child(7) { width: 6%; }
-#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 15%; }
-#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 18%; }
+#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 12%; }
+/* Trim/Reload is now just a checkbox, not "Trim / Reload" text - the
+   CELL content needs very little room, but the HEADER label itself
+   ("Trim/Reload") still needs enough width to wrap cleanly at the
+   slash instead of breaking mid-word - 9% is the floor for that at
+   this table's typical rendered width. Columns 1-9 (excluding the
+   hidden-by-default Backgauge column, #7) sum to 100 - 23 = 77%,
+   leaving Grade a comfortable 23%. */
+#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 9%; }
+#cycles-table th:nth-child(10), #cycles-table td:nth-child(10) { width: 23%; }
 
 /* Trim/reload cuts are a different kind of cycle (not comparable to a
    normal cut's timing), so they get a distinct color and tint rather
@@ -548,16 +563,6 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
   flex: 1 1 auto;
   font-weight: 600;
   font-size: 1rem;
-}
-
-/* score is now a 75% efficiency / 25% grade blend - shown small
-   underneath the shift name so the combined number stays legible at a
-   glance without hiding what it's made of. */
-.leaderboard-breakdown {
-  font-size: 0.7rem;
-  font-weight: 400;
-  color: var(--color-text-muted);
-  margin-top: 0.15rem;
 }
 
 .leaderboard-score {

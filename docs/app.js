@@ -40,27 +40,32 @@ async function refreshStaffing() {
 
   const badge = document.getElementById("staffing-badge");
   const staleBanner = document.getElementById("staffing-stale-banner");
+  const operatorsEl = document.getElementById("staffing-operators");
   if (data.stale) {
     // Stale clock-in data is worse than just "unknown" - the count/names
-    // below are frozen from whenever the sync last actually ran, which
-    // can look exactly like normal current data unless flagged. Don't
-    // even show a (likely wrong) staffed/understaffed verdict on it.
+    // are frozen from whenever the sync last actually ran, and can look
+    // exactly like normal current data unless flagged. Don't show a
+    // (likely wrong) staffed/understaffed verdict OR list those frozen
+    // names as if they were verified still clocked in right now - #status-card
+    // should only ever show operators actually confirmed current.
     badge.textContent = "sync stale";
     badge.className = "badge understaffed";
     staleBanner.textContent = data.synced_at
       ? `Clock-in data hasn't updated since ${fmtTs(data.synced_at)} - plex_sync may be down.`
       : "No clock-in data has ever synced - plex_sync may not be running.";
     staleBanner.classList.remove("hidden");
-  } else {
-    const understaffed = Boolean(data.understaffed);
-    badge.textContent = `${data.count ?? 0} staffed`;
-    badge.className = `badge ${understaffed ? "understaffed" : "staffed"}`;
-    staleBanner.classList.add("hidden");
+    operatorsEl.textContent = "unknown (sync stale)";
+    return;
   }
+
+  const understaffed = Boolean(data.understaffed);
+  badge.textContent = `${data.count ?? 0} staffed`;
+  badge.className = `badge ${understaffed ? "understaffed" : "staffed"}`;
+  staleBanner.classList.add("hidden");
 
   const operatorNames = (data.operators || []).join(", ") || "-";
   const asOf = data.as_of ? ` (as of ${fmtTs(data.as_of)})` : "";
-  document.getElementById("staffing-operators").textContent = `${operatorNames}${asOf}`;
+  operatorsEl.textContent = `${operatorNames}${asOf}`;
 }
 
 // Grade thresholds are actual/theoretical duration ratios, not a measured
@@ -182,14 +187,9 @@ async function refreshLeaderboard() {
     const li = document.createElement("li");
     li.className = `leaderboard-row ${i === 0 ? "rank-1" : ""}`;
     const scoreText = s.score === null || s.score === undefined ? "no data" : `${s.score}%`;
-    const effText = s.efficiency_pct === null || s.efficiency_pct === undefined ? "-" : `${s.efficiency_pct}%`;
-    const gradeText = s.grade_score === null || s.grade_score === undefined ? "-" : `${s.grade_score}%`;
     li.innerHTML = `
       <span class="leaderboard-medal">${MEDALS[i] || ""}</span>
-      <span class="leaderboard-shift">
-        ${s.shift}
-        <div class="leaderboard-breakdown">eff ${effText} &middot; grade ${gradeText}</div>
-      </span>
+      <span class="leaderboard-shift">${s.shift}</span>
       <span class="leaderboard-score ${scoreClass(s.score)}">${scoreText}</span>
     `;
     list.appendChild(li);
@@ -236,7 +236,7 @@ async function refreshCycles() {
       <td>${fmtSeconds(cycle.cut_length)}</td>
       <td class="col-backgauge">${fmtSeconds(cycle.backgauge_position)}</td>
       <td>${cycle.parts_per_cut ?? "-"}</td>
-      <td>${cycle.is_trim_cut ? "Trim / Reload" : ""}</td>
+      <td class="trim-reload-cell"><input type="checkbox" disabled ${cycle.is_trim_cut ? "checked" : ""}></td>
       <td>${gradeCellHtml(cycle)}</td>
     `;
     tbody.appendChild(tr);
