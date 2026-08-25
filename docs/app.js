@@ -18,6 +18,18 @@ function fmtMinutesAgo(seconds) {
   return mins < 1 ? "under a minute ago" : `${mins}m ago`;
 }
 
+function fmtHMS(totalSeconds) {
+  const s = Math.round(totalSeconds || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function fmtPct(categoryPct, key) {
+  const value = categoryPct?.[key];
+  return value === undefined ? "-" : `${value.toFixed(0)}%`;
+}
+
 async function refreshStatus() {
   const res = await fetch(`${API_BASE}/api/status`);
   const data = await res.json();
@@ -169,6 +181,52 @@ async function refreshShiftStats() {
   fillPctTile(document.getElementById("shift-stats-schedule"), data.schedule_tracking_pct, "not scheduled");
 }
 
+async function refreshCrewSummary() {
+  const res = await fetch(`${API_BASE}/api/shift/summary`);
+  const data = await res.json();
+
+  document.getElementById("crew-summary-label").textContent = data.shift_label || "-";
+
+  const tbody = document.querySelector("#crew-summary-table tbody");
+  tbody.innerHTML = "";
+
+  // Shown first, visually distinct from the per-operator rows below -
+  // same reasoning as shift-details.js's identical table: a
+  // WorkcenterLog entry tagging the whole crew together explodes into
+  // one segment per operator, so this row answers the workcenter-level
+  // question directly (each log entry counted once) instead of reading
+  // like personal activity.
+  const ws = data.workcenter_summary;
+  if (ws && ws.total_seconds) {
+    const tr = document.createElement("tr");
+    tr.className = "workcenter-summary-row";
+    tr.innerHTML = `
+      <td>Workcenter (all crew)</td>
+      <td>${fmtHMS(ws.total_seconds)}</td>
+      <td>${fmtPct(ws.category_pct, "production")}</td>
+      <td>${fmtPct(ws.category_pct, "setup")}</td>
+      <td>${fmtPct(ws.category_pct, "break")}</td>
+      <td>${fmtPct(ws.category_pct, "idle")}</td>
+      <td>${fmtPct(ws.category_pct, "other")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  for (const op of data.operators || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${op.employee_name ?? "-"}</td>
+      <td>${fmtHMS(op.total_seconds)}</td>
+      <td>${fmtPct(op.category_pct, "production")}</td>
+      <td>${fmtPct(op.category_pct, "setup")}</td>
+      <td>${fmtPct(op.category_pct, "break")}</td>
+      <td>${fmtPct(op.category_pct, "idle")}</td>
+      <td>${fmtPct(op.category_pct, "other")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 async function refreshCycles() {
   const res = await fetch(`${API_BASE}/api/cycles/recent?limit=50`);
   const data = await res.json();
@@ -199,6 +257,7 @@ async function refreshAll() {
       refreshCycles(),
       refreshStaffing(),
       refreshShiftStats(),
+      refreshCrewSummary(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;

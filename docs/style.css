@@ -165,7 +165,7 @@ main.dashboard-grid {
    shown or scrollable. */
 .col-right { justify-content: flex-start; }
 .col-right .card { flex: 0 0 auto; }
-#shift-stats-card {
+#crew-summary-card {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -194,7 +194,7 @@ main.dashboard-grid {
   .dashboard-grid .col { display: block; }
   .dashboard-grid .col > .card { margin-bottom: 1.25rem; }
   .cycles-card .overflow-wrap { overflow-y: visible; }
-  #shift-stats-card { overflow-y: visible; }
+  #crew-summary-card { overflow-y: visible; }
 }
 
 h2 {
