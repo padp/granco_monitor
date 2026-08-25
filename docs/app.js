@@ -151,7 +151,7 @@ function scoreClass(score) {
   return (SCORE_BANDS.find((b) => score >= b.min) || { cls: "grade-red" }).cls;
 }
 
-function fmtPctCell(value, unknownText) {
+function fmtPctInline(value, unknownText) {
   if (value === null || value === undefined) {
     return `<span class="${scoreClass(null)}">${unknownText}</span>`;
   }
@@ -159,25 +159,15 @@ function fmtPctCell(value, unknownText) {
 }
 
 async function refreshShiftStats() {
-  const res = await fetch(`${API_BASE}/api/shifts/leaderboard`);
+  const res = await fetch(`${API_BASE}/api/shifts/current`);
   const data = await res.json();
 
-  const byShift = Object.fromEntries((data.shifts || []).map((s) => [s.shift, s]));
-  const tbody = document.querySelector("#shift-stats-table tbody");
-  tbody.innerHTML = "";
-  for (const name of ["First Shift", "Second Shift", "Third Shift"]) {
-    const s = byShift[name];
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${name}</td>
-      <td>${fmtPctCell(s?.efficiency_pct, "no data")}</td>
-      <td>${s?.cycle_count ?? "-"}</td>
-      <td>${s?.reload_count ?? "-"}</td>
-      <td>${s?.plex_production_total ?? "-"}</td>
-      <td>${fmtPctCell(s?.schedule_tracking_pct, "not scheduled")}</td>
-    `;
-    tbody.appendChild(tr);
-  }
+  document.getElementById("shift-stats-name").innerHTML = `<strong>${data.shift ?? "-"}</strong>`;
+  document.getElementById("shift-stats-efficiency").innerHTML = fmtPctInline(data.efficiency_pct, "no data");
+  document.getElementById("shift-stats-cycles").textContent = data.cycle_count ?? "-";
+  document.getElementById("shift-stats-reloads").textContent = data.reload_count ?? "-";
+  document.getElementById("shift-stats-plex").textContent = data.plex_production_total ?? "-";
+  document.getElementById("shift-stats-schedule").innerHTML = fmtPctInline(data.schedule_tracking_pct, "not scheduled");
 }
 
 async function refreshCycles() {

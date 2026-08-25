@@ -64,21 +64,14 @@
 
     <div class="col col-right">
       <section id="shift-stats-card" class="card">
-        <h2>Shift Stats This Week</h2>
-        <div class="overflow-wrap">
-          <table id="shift-stats-table">
-            <thead>
-              <tr>
-                <th>Shift</th>
-                <th>Efficiency</th>
-                <th>Cut Cycles</th>
-                <th>Batch Reloads</th>
-                <th>Plex Production</th>
-                <th>Schedule Pace</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <h2>Current Shift Stats</h2>
+        <div id="shift-stats-name" class="status-details" style="margin-bottom: 0.5rem;"><strong>-</strong></div>
+        <div class="status-details">
+          <div><strong>Efficiency:</strong> <span id="shift-stats-efficiency">-</span></div>
+          <div><strong>Cut Cycles:</strong> <span id="shift-stats-cycles">-</span></div>
+          <div><strong>Batch Reloads:</strong> <span id="shift-stats-reloads">-</span></div>
+          <div><strong>Plex Production:</strong> <span id="shift-stats-plex">-</span></div>
+          <div><strong>Schedule Pace:</strong> <span id="shift-stats-schedule">-</span></div>
         </div>
       </section>
     </div>

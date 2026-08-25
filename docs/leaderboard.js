@@ -31,9 +31,14 @@ async function refreshLeaderboard() {
     const li = document.createElement("li");
     li.className = `leaderboard-row ${i === 0 ? "rank-1" : ""}`;
     const scoreText = s.score === null || s.score === undefined ? "no data" : `${s.score}%`;
+    const effText = s.efficiency_pct === null || s.efficiency_pct === undefined
+      ? "Efficiency: no data" : `Efficiency: ${s.efficiency_pct}%`;
     li.innerHTML = `
       <span class="leaderboard-medal">${MEDALS[i] || ""}</span>
-      <span class="leaderboard-shift">${s.shift}</span>
+      <span class="leaderboard-shift-block">
+        <span class="leaderboard-shift">${s.shift}</span>
+        <span class="leaderboard-efficiency">${effText}</span>
+      </span>
       <span class="leaderboard-score ${scoreClass(s.score)}">${scoreText}</span>
     `;
     list.appendChild(li);

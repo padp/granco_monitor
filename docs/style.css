@@ -589,10 +589,25 @@ td input:focus { background: var(--color-surface); border-color: var(--color-acc
   flex: 0 0 auto;
 }
 
-.leaderboard-shift {
+.leaderboard-shift-block {
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.leaderboard-shift {
   font-weight: 600;
   font-size: 1rem;
+}
+
+/* Weekly efficiency shown alongside the blended score, per the user's
+   explicit request - the score alone hid which component (efficiency
+   vs. grade) was actually driving a shift's rank. */
+.leaderboard-efficiency {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 
 .leaderboard-score {
