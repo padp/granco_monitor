@@ -108,6 +108,27 @@ def _shift_window(date_str: str, shift_name: str) -> tuple:
     return datetime.combine(d - timedelta(days=1), time(*_THIRD_START)), datetime.combine(d, time(*_FIRST_START))
 
 
+def _week_start_for_shift(shift_name: str, now: datetime) -> datetime:
+    """This shift's most recent weekly-reset point - the start of its
+    Monday-labeled occurrence. Reuses _shift_window rather than
+    hardcoding a boundary per shift: for Third Shift, _shift_window
+    already returns the *previous* day as that occurrence's start (its
+    Monday-labeled shift actually begins Sunday night), so this needs no
+    special-casing to get "Sunday night for Third Shift, Monday morning
+    for the other two" - it falls out of the existing shift-window math
+    for free.
+
+    Rolls back one more week if this week's occurrence hasn't started
+    yet - e.g. asking at 3 AM Monday, before First Shift's 06:50 start
+    means this week's First Shift hasn't happened, so last week's is
+    still the most recent completed reset point."""
+    monday = (now - timedelta(days=now.weekday())).date()
+    start, _ = _shift_window(monday.isoformat(), shift_name)
+    if start > now:
+        start, _ = _shift_window((monday - timedelta(days=7)).isoformat(), shift_name)
+    return start
+
+
 if os.environ.get("SQL_PASS"):
     # Skipped if SQL_PASS isn't set yet (e.g. at build time) - runs at
     # import time so it also happens under gunicorn, not just `python app.py`.
@@ -261,12 +282,74 @@ def cycles_recent():
     return jsonify(cycles=cycles)
 
 
+def _schedule_tracking_pct(shift_name: str, week_start: datetime, now: datetime):
+    """How well this shift is keeping pace with what was scheduled for
+    it this week - sum(actual hours) / sum(estimated_hours) * 100 across
+    every scheduled row since week_start, matched per-job rather than
+    just comparing shift-wide totals (per the user's explicit choice).
+
+    Matching a schedule row to real production reuses _part_prefix - the
+    same technique already used to pair PLC input parts against Plex
+    output parts for the Pieces Cut table - since the schedule's own
+    part_number is already the bare prefix (confirmed there). For each
+    scheduled date this shift worked this week, sums that day's non-trim
+    cycles' cycle_duration_s by part prefix, then credits each scheduled
+    row with its matching prefix's total. A part scheduled twice in one
+    day each independently get credited the SAME matched total (not
+    split between them) - a known, accepted limitation, not worth
+    solving for since duplicate same-part rows in one shift's schedule
+    should be rare.
+
+    Ratio of sums, not an average of each job's own ratio - same
+    reasoning as the efficiency simplification above: one large job
+    shouldn't get drowned out by several small ones (or vice versa).
+    Returns None if nothing was scheduled for this shift this week."""
+    total_estimated_h = 0.0
+    total_actual_h = 0.0
+
+    d = week_start.date()
+    while d <= now.date():
+        date_str = d.isoformat()
+        doc = _schedule_doc(date_str, shift_name)
+        rows = [r for r in (doc.get("rows") or []) if r.get("estimated_hours")]
+        if rows:
+            day_start, day_end = _shift_window(date_str, shift_name)
+            day_cycles = get_db().cycles.find(
+                {
+                    "ts": {"$gte": day_start.isoformat(), "$lt": min(day_end, now).isoformat()},
+                    "is_trim_cut": {"$ne": 1},
+                },
+                projection={"_id": False, "part_number": True, "cycle_duration_s": True},
+            )
+            actual_seconds_by_prefix = {}
+            for c in day_cycles:
+                prefix = _part_prefix(c.get("part_number"))
+                duration = c.get("cycle_duration_s")
+                if prefix and duration:
+                    actual_seconds_by_prefix[prefix] = actual_seconds_by_prefix.get(prefix, 0.0) + duration
+
+            for row in rows:
+                total_estimated_h += row["estimated_hours"]
+                total_actual_h += actual_seconds_by_prefix.get(row.get("part_number"), 0.0) / 3600.0
+        d += timedelta(days=1)
+
+    if total_estimated_h <= 0:
+        return None
+    return round(total_actual_h / total_estimated_h * 100)
+
+
 @app.get("/api/shifts/leaderboard")
 def shifts_leaderboard():
-    """Ranks the three shifts by a blended weekly score - 75% efficiency,
-    25% grade, per the user's explicit weighting (efficiency is the
-    primary signal; grade is a secondary modifier, no longer its own
-    separate medal ranking). The two components:
+    """Per-shift weekly stats: a blended score (75% efficiency, 25%
+    grade, per the user's explicit weighting) plus raw counts, all reset
+    on a real calendar week rather than a rolling window - see
+    _week_start_for_shift (Monday morning for First/Second Shift, Sunday
+    night for Third, since its Monday-labeled occurrence already starts
+    the night before). Each shift gets its OWN week-start, not one
+    shared window - fed to the frontend leaderboard page (ranked) and
+    index.html's per-shift stats panel (unranked) alike.
+
+    The two blended-score components:
 
     - efficiency_pct: (sum of theoretical_duration_s) / (sum of
       cycle_duration_s) * 100, across the exact same graded, non-trim
@@ -298,17 +381,20 @@ def shifts_leaderboard():
     (is_trim_cut/batch_reload - always the same event, see
     collector/detector.py) are excluded from both components entirely:
     their theoretical_duration_s doesn't cover the real reload time, so
-    comparing them would always look artificially bad.
+    comparing them would always look artificially bad - they're counted
+    separately instead, in reload_count.
 
-    Whether the shift ran at all this week stays a separate, unblended
+    Whether the shift ran at all recently stays a separate, unblended
     stat - a different question again, kept apart per the user's
-    earlier choice (see shifts_active_count)."""
+    earlier choice (see shifts_active_count, still on its own rolling
+    Mon-Fri window, unaffected by this weekly reset)."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
-    window_start = now - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+    week_start = {name: _week_start_for_shift(name, now) for name in SHIFT_NAMES}
+    earliest_start = min(week_start.values())
 
     cycles = db.cycles.find(
-        {"ts": {"$gte": window_start.isoformat()}},
+        {"ts": {"$gte": earliest_start.isoformat()}},
         projection={
             "_id": False, "ts": True, "cycle_duration_s": True,
             "theoretical_duration_s": True, "is_trim_cut": True,
@@ -317,24 +403,47 @@ def shifts_leaderboard():
     tallies = {name: {"graded": 0, "great_or_good": 0} for name in SHIFT_NAMES}
     theoretical_seconds = {name: 0.0 for name in SHIFT_NAMES}
     actual_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    cycle_count = {name: 0 for name in SHIFT_NAMES}
+    reload_count = {name: 0 for name in SHIFT_NAMES}
     for cycle in cycles:
         ts = cycle.get("ts")
         actual = cycle.get("cycle_duration_s")
-        if not ts or actual is None or cycle.get("is_trim_cut"):
+        if not ts or actual is None:
             continue
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        if ts_dt < week_start[shift]:
+            continue
+
+        if cycle.get("is_trim_cut"):
+            reload_count[shift] += 1
+            continue
+        cycle_count[shift] += 1
+
         theoretical = cycle.get("theoretical_duration_s")
         if not theoretical:
             continue
-
-        ts_dt = datetime.fromisoformat(ts)
-        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
-
         ratio = actual / theoretical
         tallies[shift]["graded"] += 1
         if ratio <= GRADE_GOOD_MAX:
             tallies[shift]["great_or_good"] += 1
         theoretical_seconds[shift] += theoretical
         actual_seconds[shift] += actual
+
+    production_events = db.production_events.find(
+        {"ts": {"$gte": earliest_start.isoformat()}},
+        projection={"_id": False, "ts": True, "production": True},
+    )
+    plex_production_total = {name: 0.0 for name in SHIFT_NAMES}
+    for event in production_events:
+        ts = event.get("ts")
+        if not ts:
+            continue
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+        if ts_dt < week_start[shift]:
+            continue
+        plex_production_total[shift] += event.get("production") or 0.0
 
     shifts = []
     for name in SHIFT_NAMES:
@@ -357,11 +466,16 @@ def shifts_leaderboard():
             "efficiency_pct": efficiency_pct,
             "grade_score": grade_score,
             "graded_count": graded,
+            "cycle_count": cycle_count[name],
+            "reload_count": reload_count[name],
+            "plex_production_total": round(plex_production_total[name]),
+            "schedule_tracking_pct": _schedule_tracking_pct(name, week_start[name], now),
+            "week_start": week_start[name].isoformat(),
         })
 
     shifts.sort(key=lambda s: (s["score"] is None, -(s["score"] or 0)))
 
-    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+    return jsonify(shifts=shifts)
 
 
 @app.get("/api/shifts/production")

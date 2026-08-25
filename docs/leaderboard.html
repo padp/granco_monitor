@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Leaderboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Leaderboard</span>
+    <div style="display: flex; align-items: baseline; gap: 1rem;">
+      <a class="app-header-subtitle app-header-link" href="index.html">&larr; Back to dashboard</a>
+      <span id="last-updated" class="app-header-subtitle">-</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card card-wide">
+      <h2>&#127942; Weekly Shift Leaderboard</h2>
+      <div class="status-details" style="margin-bottom: 0.75rem;">
+        Resets every week - Monday morning for First/Second Shift, Sunday night for Third Shift.
+      </div>
+      <ol id="leaderboard-list" class="leaderboard-list"></ol>
+
+      <div class="leaderboard-divider">&#9881;&#65039; Active Shifts This Week</div>
+      <ol id="active-shifts-list" class="utilization-list"></ol>
+    </section>
+  </main>
+
+  <script src="leaderboard.js"></script>
+</body>
+</html>

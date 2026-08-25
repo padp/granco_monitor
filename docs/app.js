@@ -137,8 +137,6 @@ function gradeCellHtml(cycle) {
   </span>`;
 }
 
-const MEDALS = ["🥇", "🥈", "🥉"];
-
 // Same 4-band feel as the per-cut Grade column, just against a 0-100
 // weekly score instead of a duration ratio - not a measured standard,
 // a starting heuristic.
@@ -153,47 +151,32 @@ function scoreClass(score) {
   return (SCORE_BANDS.find((b) => score >= b.min) || { cls: "grade-red" }).cls;
 }
 
-async function refreshLeaderboard() {
+function fmtPctCell(value, unknownText) {
+  if (value === null || value === undefined) {
+    return `<span class="${scoreClass(null)}">${unknownText}</span>`;
+  }
+  return `<span class="${scoreClass(value)}">${value}%</span>`;
+}
+
+async function refreshShiftStats() {
   const res = await fetch(`${API_BASE}/api/shifts/leaderboard`);
   const data = await res.json();
 
-  document.getElementById("leaderboard-window").textContent =
-    data.window_days ? `Last ${data.window_days} days` : "-";
-
-  const list = document.getElementById("leaderboard-list");
-  list.innerHTML = "";
-  (data.shifts || []).forEach((s, i) => {
-    const li = document.createElement("li");
-    li.className = `leaderboard-row ${i === 0 ? "rank-1" : ""}`;
-    const scoreText = s.score === null || s.score === undefined ? "no data" : `${s.score}%`;
-    li.innerHTML = `
-      <span class="leaderboard-medal">${MEDALS[i] || ""}</span>
-      <span class="leaderboard-shift">${s.shift}</span>
-      <span class="leaderboard-score ${scoreClass(s.score)}">${scoreText}</span>
+  const byShift = Object.fromEntries((data.shifts || []).map((s) => [s.shift, s]));
+  const tbody = document.querySelector("#shift-stats-table tbody");
+  tbody.innerHTML = "";
+  for (const name of ["First Shift", "Second Shift", "Third Shift"]) {
+    const s = byShift[name];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${name}</td>
+      <td>${fmtPctCell(s?.efficiency_pct, "no data")}</td>
+      <td>${s?.cycle_count ?? "-"}</td>
+      <td>${s?.reload_count ?? "-"}</td>
+      <td>${s?.plex_production_total ?? "-"}</td>
+      <td>${fmtPctCell(s?.schedule_tracking_pct, "not scheduled")}</td>
     `;
-    list.appendChild(li);
-  });
-}
-
-async function refreshActiveShifts() {
-  const res = await fetch(`${API_BASE}/api/shifts/active-count`);
-  const data = await res.json();
-
-  const list = document.getElementById("active-shifts-list");
-  list.innerHTML = "";
-  for (const s of data.shifts || []) {
-    const li = document.createElement("li");
-    li.className = "utilization-row";
-    const scheduledDays = s.scheduled_days ?? 5;
-    const pct = (s.active_count / scheduledDays) * 100;
-    const cls = scoreClass(pct);
-    const overtimeText = s.overtime_count ? ` (+${s.overtime_count} overtime)` : "";
-    li.innerHTML = `
-      <span class="utilization-shift">${s.shift}</span>
-      <div class="utilization-bar"><div class="utilization-bar-fill ${cls}" style="width: ${pct}%"></div></div>
-      <span class="utilization-pct">${s.active_count} of ${scheduledDays}${overtimeText}</span>
-    `;
-    list.appendChild(li);
+    tbody.appendChild(tr);
   }
 }
 
@@ -212,9 +195,7 @@ async function refreshCycles() {
       <td>${cycle.cut_number ?? "-"}</td>
       <td>${fmtSeconds(cycle.cycle_duration_s)}</td>
       <td>${fmtSeconds(cycle.theoretical_duration_s)}</td>
-      <td>${fmtSeconds(cycle.cut_length)}</td>
       <td class="col-backgauge">${fmtSeconds(cycle.backgauge_position)}</td>
-      <td>${cycle.parts_per_cut ?? "-"}</td>
       <td class="trim-reload-cell">${cycle.is_trim_cut ? "✅" : "⬜"}</td>
       <td>${gradeCellHtml(cycle)}</td>
     `;
@@ -228,8 +209,7 @@ async function refreshAll() {
       refreshStatus(),
       refreshCycles(),
       refreshStaffing(),
-      refreshLeaderboard(),
-      refreshActiveShifts(),
+      refreshShiftStats(),
     ]);
     document.getElementById("last-updated").textContent =
       `updated ${new Date().toLocaleTimeString()}`;

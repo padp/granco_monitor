@@ -157,16 +157,15 @@ main.dashboard-grid {
    the default stacked-card margin (that would double up). */
 .dashboard-grid .col > .card { margin-bottom: 0; }
 
-/* Right column: schedule stays pinned to its natural height at the top
-   ("top right" per the user's layout request); the leaderboard card
-   takes the rest of the column and scrolls internally if its own
-   content (medals + utilization + efficiency) is taller than the
-   remaining space - it grew past a fixed height once Efficiency was
-   added, and without this it was silently clipped by the TV page's
-   overflow:hidden rather than shown or scrollable. */
+/* Right column: the shift-stats card takes the rest of the column and
+   scrolls internally if its own content is ever taller than the
+   remaining space - same reasoning as the leaderboard card this
+   replaced (moved to its own page, see leaderboard.html), without this
+   it'd be silently clipped by the TV page's overflow:hidden rather than
+   shown or scrollable. */
 .col-right { justify-content: flex-start; }
 .col-right .card { flex: 0 0 auto; }
-.leaderboard-card {
+#shift-stats-card {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -195,7 +194,7 @@ main.dashboard-grid {
   .dashboard-grid .col { display: block; }
   .dashboard-grid .col > .card { margin-bottom: 1.25rem; }
   .cycles-card .overflow-wrap { overflow-y: visible; }
-  .leaderboard-card { overflow-y: visible; }
+  #shift-stats-card { overflow-y: visible; }
 }
 
 h2 {
@@ -294,25 +293,27 @@ tbody tr:hover { background: var(--color-accent-soft); }
    label wider than its column would otherwise render past the column
    boundary and visually collide with its neighbor instead of wrapping
    cleanly or clipping. */
-#cycles-table { table-layout: fixed; }
+/* Length (in) and Parts columns were dropped (redundant with data
+   available elsewhere) - the freed width went to the remaining columns
+   plus a slightly larger font (below), same table footprint either
+   way. Column order is now Time/Part/Cut#/Actual/Theory/Backgauge
+   (hidden by default)/Trim-Reload/Grade. */
+#cycles-table { table-layout: fixed; font-size: 1.05rem; }
 #cycles-table th, #cycles-table td { overflow: hidden; }
-#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 14%; }
-#cycles-table th:nth-child(2), #cycles-table td:nth-child(2) { width: 10%; }
-#cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 5%; }
-#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 9%; }
-#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 9%; }
-#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 9%; }
-#cycles-table th:nth-child(7), #cycles-table td:nth-child(7) { width: 6%; }
-#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 12%; }
+#cycles-table th:nth-child(1), #cycles-table td:nth-child(1) { width: 16%; }
+#cycles-table th:nth-child(2), #cycles-table td:nth-child(2) { width: 12%; }
+#cycles-table th:nth-child(3), #cycles-table td:nth-child(3) { width: 6%; }
+#cycles-table th:nth-child(4), #cycles-table td:nth-child(4) { width: 11%; }
+#cycles-table th:nth-child(5), #cycles-table td:nth-child(5) { width: 11%; }
+#cycles-table th:nth-child(6), #cycles-table td:nth-child(6) { width: 7%; }
 /* Trim/Reload is now just a checkbox, not "Trim / Reload" text - the
    CELL content needs very little room, but the HEADER label itself
    ("Trim/Reload") still needs enough width to wrap cleanly at the
-   slash instead of breaking mid-word - 9% is the floor for that at
-   this table's typical rendered width. Columns 1-9 (excluding the
-   hidden-by-default Backgauge column, #7) sum to 100 - 23 = 77%,
-   leaving Grade a comfortable 23%. */
-#cycles-table th:nth-child(9), #cycles-table td:nth-child(9) { width: 9%; }
-#cycles-table th:nth-child(10), #cycles-table td:nth-child(10) { width: 23%; }
+   slash instead of breaking mid-word. Columns 1-7 (excluding the
+   hidden-by-default Backgauge column, #6) sum to 100 - 26 = 74%,
+   leaving Grade a comfortable 26%. */
+#cycles-table th:nth-child(7), #cycles-table td:nth-child(7) { width: 11%; }
+#cycles-table th:nth-child(8), #cycles-table td:nth-child(8) { width: 26%; }
 
 /* Trim/reload cuts are a different kind of cycle (not comparable to a
    normal cut's timing), so they get a distinct color and tint rather
