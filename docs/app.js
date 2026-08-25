@@ -151,23 +151,22 @@ function scoreClass(score) {
   return (SCORE_BANDS.find((b) => score >= b.min) || { cls: "grade-red" }).cls;
 }
 
-function fmtPctInline(value, unknownText) {
-  if (value === null || value === undefined) {
-    return `<span class="${scoreClass(null)}">${unknownText}</span>`;
-  }
-  return `<span class="${scoreClass(value)}">${value}%</span>`;
+function fillPctTile(el, value, unknownText) {
+  const known = value !== null && value !== undefined;
+  el.textContent = known ? `${value}%` : unknownText;
+  el.className = `shift-stat-value ${scoreClass(value)} ${known ? "" : "shift-stat-value-text"}`;
 }
 
 async function refreshShiftStats() {
   const res = await fetch(`${API_BASE}/api/shifts/current`);
   const data = await res.json();
 
-  document.getElementById("shift-stats-name").innerHTML = `<strong>${data.shift ?? "-"}</strong>`;
-  document.getElementById("shift-stats-efficiency").innerHTML = fmtPctInline(data.efficiency_pct, "no data");
+  document.getElementById("shift-stats-badge").textContent = data.shift ?? "-";
+  fillPctTile(document.getElementById("shift-stats-efficiency"), data.efficiency_pct, "no data");
   document.getElementById("shift-stats-cycles").textContent = data.cycle_count ?? "-";
   document.getElementById("shift-stats-reloads").textContent = data.reload_count ?? "-";
   document.getElementById("shift-stats-plex").textContent = data.plex_production_total ?? "-";
-  document.getElementById("shift-stats-schedule").innerHTML = fmtPctInline(data.schedule_tracking_pct, "not scheduled");
+  fillPctTile(document.getElementById("shift-stats-schedule"), data.schedule_tracking_pct, "not scheduled");
 }
 
 async function refreshCycles() {

@@ -235,6 +235,60 @@ h2 {
 .badge.unknown { background: var(--unknown); }
 .badge.staffed { background: var(--staffed); }
 .badge.understaffed { background: var(--understaffed); }
+.badge.shift-badge { background: var(--color-accent); }
+
+/* ------------------------------------------------------------ */
+/* Current shift stats (index.html)                               */
+/* ------------------------------------------------------------ */
+
+.shift-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.shift-stat-tile {
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  text-align: center;
+}
+
+/* Schedule Pace is a comparison across the whole shift's scheduled
+   jobs, not a single-cut-scale count like its neighbors - set apart as
+   a full-width summary row rather than squeezed into the 2-column grid. */
+.shift-stat-tile-wide { grid-column: 1 / -1; }
+
+.shift-stat-value {
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--color-text);
+}
+
+/* "no data"/"not scheduled" fallback text is too long to read well at
+   the same size as a real percentage - shown smaller and muted instead
+   of forcing it to wrap or overflow the tile. */
+.shift-stat-value.shift-stat-value-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.shift-stat-value.grade-green { color: var(--grade-green); }
+.shift-stat-value.grade-yellow { color: var(--grade-yellow); }
+.shift-stat-value.grade-orange { color: var(--grade-orange); }
+.shift-stat-value.grade-red { color: var(--grade-red); }
+.shift-stat-value.grade-unknown { color: var(--color-text-muted); }
+
+.shift-stat-label {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
 
 /* Shown when the clock-in sync (plex_sync) hasn't updated in a while -
    the operators/count above are frozen from whenever it last actually

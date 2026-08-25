@@ -50,7 +50,7 @@
                 <th>Part</th>
                 <th>Cut #</th>
                 <th>Actual (s)</th>
-                <th>Theory (s)</th>
+                <th>Ideal (s)</th>
                 <th class="col-backgauge">Backgauge (in)</th>
                 <th class="trim-reload-cell">Trim / Reload</th>
                 <th>Grade</th>
@@ -64,14 +64,31 @@
 
     <div class="col col-right">
       <section id="shift-stats-card" class="card">
-        <h2>Current Shift Stats</h2>
-        <div id="shift-stats-name" class="status-details" style="margin-bottom: 0.5rem;"><strong>-</strong></div>
-        <div class="status-details">
-          <div><strong>Efficiency:</strong> <span id="shift-stats-efficiency">-</span></div>
-          <div><strong>Cut Cycles:</strong> <span id="shift-stats-cycles">-</span></div>
-          <div><strong>Batch Reloads:</strong> <span id="shift-stats-reloads">-</span></div>
-          <div><strong>Plex Production:</strong> <span id="shift-stats-plex">-</span></div>
-          <div><strong>Schedule Pace:</strong> <span id="shift-stats-schedule">-</span></div>
+        <div class="status-row" style="margin-bottom: 1rem;">
+          <h2 style="margin: 0;">Current Shift Stats</h2>
+          <span id="shift-stats-badge" class="badge shift-badge">-</span>
+        </div>
+        <div class="shift-stats-grid">
+          <div class="shift-stat-tile">
+            <div id="shift-stats-efficiency" class="shift-stat-value">-</div>
+            <div class="shift-stat-label">Efficiency</div>
+          </div>
+          <div class="shift-stat-tile">
+            <div id="shift-stats-cycles" class="shift-stat-value">-</div>
+            <div class="shift-stat-label">Cut Cycles</div>
+          </div>
+          <div class="shift-stat-tile">
+            <div id="shift-stats-reloads" class="shift-stat-value">-</div>
+            <div class="shift-stat-label">Batch Reloads</div>
+          </div>
+          <div class="shift-stat-tile">
+            <div id="shift-stats-plex" class="shift-stat-value">-</div>
+            <div class="shift-stat-label">Plex Production</div>
+          </div>
+          <div class="shift-stat-tile shift-stat-tile-wide">
+            <div id="shift-stats-schedule" class="shift-stat-value">-</div>
+            <div class="shift-stat-label">Schedule Pace</div>
+          </div>
         </div>
       </section>
     </div>
