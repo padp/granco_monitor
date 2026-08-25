@@ -212,16 +212,22 @@ async function refreshCrewSummary() {
     tbody.appendChild(tr);
   }
 
+  // Per-operator category percentages are left blank, not shown - a
+  // WorkcenterLog entry tagging the whole crew explodes into one
+  // identical segment per operator on it (see the comment above), so
+  // showing this per-person reads as personal activity when it's
+  // usually just a copy of the workcenter-wide status above. That row
+  // is the meaningful, correctly-deduplicated one.
   for (const op of data.operators || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${op.employee_name ?? "-"}</td>
       <td>${fmtHMS(op.total_seconds)}</td>
-      <td>${fmtPct(op.category_pct, "production")}</td>
-      <td>${fmtPct(op.category_pct, "setup")}</td>
-      <td>${fmtPct(op.category_pct, "break")}</td>
-      <td>${fmtPct(op.category_pct, "idle")}</td>
-      <td>${fmtPct(op.category_pct, "other")}</td>
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
     `;
     tbody.appendChild(tr);
   }
