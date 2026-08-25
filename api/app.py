@@ -261,30 +261,6 @@ def cycles_recent():
     return jsonify(cycles=cycles)
 
 
-def _merge_interval_seconds(intervals: list) -> float:
-    """Standard overlapping-interval merge - so two simultaneous
-    "Production" segments from different sources (e.g. an operator
-    running the saw under the Granco workcenter while Granco Kanban is
-    still open from before, because they forgot to log off it) count as
-    one real span of wall-clock time instead of being double-counted.
-    Sidesteps ever having to decide which of the two workcenters is
-    "really" the one they're on - if both claim Production for the same
-    stretch, the union already gives the right answer regardless."""
-    if not intervals:
-        return 0.0
-    ordered = sorted(intervals, key=lambda pair: pair[0])
-    total = 0.0
-    cur_start, cur_end = ordered[0]
-    for start, end in ordered[1:]:
-        if start <= cur_end:
-            cur_end = max(cur_end, end)
-        else:
-            total += (cur_end - cur_start).total_seconds()
-            cur_start, cur_end = start, end
-    total += (cur_end - cur_start).total_seconds()
-    return total
-
-
 @app.get("/api/shifts/leaderboard")
 def shifts_leaderboard():
     """Ranks the three shifts by a blended weekly score - 75% efficiency,
@@ -292,30 +268,27 @@ def shifts_leaderboard():
     primary signal; grade is a secondary modifier, no longer its own
     separate medal ranking). The two components:
 
-    - efficiency_pct: the OEE "Performance" factor - (sum of
-      theoretical_duration_s for actual non-trim cuts in the shift) /
-      (net elapsed seconds where Plex Status == "Production") * 100. Can
-      read over 100% if actual cuts ran faster than theoretical on
-      average, or if the two sources' time windows don't perfectly line
-      up - not clamped, since that's itself informative rather than an
-      error to hide.
+    - efficiency_pct: (sum of theoretical_duration_s) / (sum of
+      cycle_duration_s) * 100, across the exact same graded, non-trim
+      cycles used for grade_score below - plain actual/ideal, both sides
+      straight from the PLC's own per-cut timing. Can read over 100% if
+      actual cuts ran faster than theoretical on average - not clamped,
+      since that's itself informative rather than an error to hide.
 
-      "Production status" time comes from operator_segments across
-      both saw workcenters (Granco and Granco Kanban share one physical
-      saw, and operators frequently forget to log off one before
-      switching - see plex_sync/config.py's WORKCENTERS), deduplicated
-      by log_key first (each WorkcenterLog row explodes into one
-      segment per operator on it, so summing duration_s across all of
-      them would multiply by crew size), then merged as overlapping
-      time intervals (_merge_interval_seconds) rather than summed, so a
-      forgotten-open second workcenter's overlapping "Production" span
-      doesn't double-count the same real stretch of time.
-
-      Reload cycles (see below) get subtracted back out of this net
-      elapsed time too - their theoretical_duration_s never covers the
-      actual ~70s reload takes, so leaving that real time fully counted
-      here while it earns zero credit in the numerator would drag
-      efficiency down for something the crew isn't responsible for.
+      An earlier version used Plex WorkcenterLog "Production status"
+      time as the denominator instead (merged across both saw
+      workcenters, with reload-cycle time subtracted back out to avoid
+      penalizing the crew for it). Dropped 2026-08-25 after it produced
+      a 770% efficiency reading for Second Shift: reconciling two
+      independent systems (the PLC's per-cut timing vs. Plex's
+      separately-logged status time) was fragile - double-logged
+      overlapping workcenter segments, and a handful of trim/reload
+      cycles whose *actual* duration includes real idle/wait time (not
+      just the ~50s of real reload mechanics - see
+      collector/config.py's BACKGAUGE_RETURN_TIME_S) being subtracted
+      with no cap, could silently collapse the denominator. Comparing
+      the PLC's own actual vs. theoretical time for the same cuts
+      sidesteps all of that - no cross-system reconciliation needed.
     - grade_score: what percentage of this week's cuts graded Great or
       Good (see docs/app.js's per-cut Grade column - same ratio bands,
       just rolled up to a weekly score instead of shown per row).
@@ -323,9 +296,8 @@ def shifts_leaderboard():
     If only one component has data for a shift, that one is used alone
     rather than treating the missing side as zero. Trim/reload cuts
     (is_trim_cut/batch_reload - always the same event, see
-    collector/detector.py) are excluded from grade and theoretical_seconds
-    entirely, same reasoning as the Grade column throughout this file:
-    their theoretical_duration_s doesn't cover the reload time, so
+    collector/detector.py) are excluded from both components entirely:
+    their theoretical_duration_s doesn't cover the real reload time, so
     comparing them would always look artificially bad.
 
     Whether the shift ran at all this week stays a separate, unblended
@@ -344,58 +316,33 @@ def shifts_leaderboard():
     )
     tallies = {name: {"graded": 0, "great_or_good": 0} for name in SHIFT_NAMES}
     theoretical_seconds = {name: 0.0 for name in SHIFT_NAMES}
-    reload_seconds = {name: 0.0 for name in SHIFT_NAMES}
+    actual_seconds = {name: 0.0 for name in SHIFT_NAMES}
     for cycle in cycles:
         ts = cycle.get("ts")
         actual = cycle.get("cycle_duration_s")
-        if not ts or actual is None:
+        if not ts or actual is None or cycle.get("is_trim_cut"):
             continue
-        ts_dt = datetime.fromisoformat(ts)
-        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
-
-        if cycle.get("is_trim_cut"):
-            reload_seconds[shift] += actual
-            continue
-
         theoretical = cycle.get("theoretical_duration_s")
         if not theoretical:
             continue
+
+        ts_dt = datetime.fromisoformat(ts)
+        shift = _shift_name_for((ts_dt.hour, ts_dt.minute))
+
         ratio = actual / theoretical
         tallies[shift]["graded"] += 1
         if ratio <= GRADE_GOOD_MAX:
             tallies[shift]["great_or_good"] += 1
         theoretical_seconds[shift] += theoretical
-
-    segments = db.operator_segments.find(
-        {"end_ts": {"$gte": window_start.isoformat()}},
-        projection={"_id": False, "log_key": True, "start_ts": True, "duration_s": True, "status_category": True},
-    )
-    seen_log_keys = set()
-    production_intervals = {name: [] for name in SHIFT_NAMES}
-    for seg in segments:
-        log_key = seg.get("log_key")
-        if log_key is None or log_key in seen_log_keys:
-            continue
-        seen_log_keys.add(log_key)
-        if seg.get("status_category") != "production" or not seg.get("start_ts"):
-            continue
-        start_dt = datetime.fromisoformat(seg["start_ts"])
-        duration = seg.get("duration_s") or 0.0
-        shift = _shift_name_for((start_dt.hour, start_dt.minute))
-        production_intervals[shift].append((start_dt, start_dt + timedelta(seconds=duration)))
-
-    production_seconds = {
-        name: max(_merge_interval_seconds(production_intervals[name]) - reload_seconds[name], 0.0)
-        for name in SHIFT_NAMES
-    }
+        actual_seconds[shift] += actual
 
     shifts = []
     for name in SHIFT_NAMES:
         graded = tallies[name]["graded"]
         grade_score = round(tallies[name]["great_or_good"] / graded * 100) if graded else None
 
-        prod = production_seconds[name]
-        efficiency_pct = round(theoretical_seconds[name] / prod * 100) if prod else None
+        actual = actual_seconds[name]
+        efficiency_pct = round(theoretical_seconds[name] / actual * 100) if actual else None
 
         if efficiency_pct is None:
             score = grade_score
