@@ -113,15 +113,29 @@ BLADE_CUTTING_CURRENT_THRESHOLD = 18.0
 # values. Just a fixed constant for now rather than reading it live.
 BLADE_RETURN_SPEED = 600.0
 
-# User-estimated backgauge advance speed (mm/sec) - like BLADE_RETURN_SPEED,
-# a fixed constant rather than a measured value. Measuring this from
-# position deltas was unreliable: a single continuous "moving" segment
-# can span physically different phases (e.g. the unpredictable approach-
-# to-light-curtain + trim on the first cut of a batch, or reversing
-# direction after the last cut with no clean hold in between), and the
-# live BACKGAUGE_COMMAND_VELOCITY tag was never validated. cut_length is
-# in mm, so this stays in mm/sec rather than converting to inches.
-BACKGAUGE_ADVANCE_SPEED_MM_PER_S = 150.0
+# Backgauge advance speed (mm/sec) - still a fixed constant rather than
+# read live every poll (measuring it from position deltas was
+# unreliable: a single continuous "moving" segment can span physically
+# different phases, e.g. the unpredictable approach-to-light-curtain +
+# trim on the first cut of a batch, or reversing direction after the
+# last cut with no clean hold in between). cut_length is in mm, so this
+# stays in mm/sec rather than converting to inches.
+#
+# Was 150.0 (a guess, not measured, per the earlier version of this
+# comment). Updated 2026-08-26 to 175 - the user found a live PLC tag,
+# BACKGAUGE.DirectCommandVelocity, reading ~175 on the HMI, and fitting
+# it against real cycle data confirmed it: at BLADE_RETURN_SPEED's
+# current 600, 175 brings theoretical_duration_s to within ~0.1s mean
+# error of actual cycle_duration_s on tight back-to-back cuts (down from
+# ~1.0s at 150) - the best, most-unbiased fit found. Deliberately NOT
+# paired with also raising BLADE_RETURN_SPEED (a separately-considered
+# fix, see collector/detector.py's blade-return investigation) - doing
+# both at once overshot badly (flipped most cycles to reading UNDER
+# 100% instead of over), suggesting the blade's return stroke and the
+# backgauge's advance likely overlap in reality rather than happening
+# strictly back-to-back the way _theoretical_duration_s sums them - a
+# structural question for another day, not a reason to hold this fix.
+BACKGAUGE_ADVANCE_SPEED_MM_PER_S = 175.0
 
 # Known dead-cycle constant described by the user: time for the backgauge
 # to return home after finishing a batch, dump the previous batch's tail
