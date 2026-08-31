@@ -41,6 +41,10 @@ function renderShiftTable(tableId, doc, currentPartPrefix) {
     if (currentPartPrefix && row.part_number === currentPartPrefix) {
       tr.classList.add("current-part-row");
     }
+    // Green wash once the PLC has finished this part (End time is in).
+    if (row.actual_end) {
+      tr.classList.add("completed-row");
+    }
     const start = fmtClock(row.actual_start);
     // Started but no end yet = the part the PLC is cutting right now.
     const end = row.actual_start && !row.actual_end ? "cutting…" : fmtClock(row.actual_end);

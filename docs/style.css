@@ -24,6 +24,9 @@
   --warn: #dc2626;
   --warn-bg: #fef2f2;
 
+  --done: #15803d;
+  --done-bg: #e6f6ec;
+
   --grade-green: #16a34a;
   --grade-yellow: #ca8a04;
   --grade-orange: #ea580c;
@@ -47,6 +50,9 @@
 
     --warn: #f87171;
     --warn-bg: #3a1414;
+
+    --done: #4ade80;
+    --done-bg: #16311f;
   }
 }
 
@@ -816,12 +822,17 @@ main.board-grid {
 
 .schedule-col { min-height: 0; }
 
-/* Previous / current / next each get an equal third of the column's
-   height and scroll internally if a shift's part list runs long - the
-   board runs unattended on a shop-floor TV, so nothing should need
-   hand-scrolling to be read. */
+/* The three blocks share the column's height. flex-basis:auto means each
+   is at least its own content height, so Current never scrolls just
+   because it has more rows than a third - it takes the room it needs.
+   Roughly equal when the schedules are similar (equal flex-grow splits
+   the leftover). When the three genuinely don't all fit, flex-shrink
+   decides who gives: Previous first and furthest (300), down to just its
+   heading and scrolling internally past that; then Next (60); Current
+   (1) only scrolls if collapsing both still isn't enough. Nothing pushes
+   the TV page past the screen. */
 .shift-block {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -838,18 +849,20 @@ main.board-grid {
 .shift-block th { font-size: 0.85rem; }
 .shift-block td { padding: 0.5rem 0.6rem; }
 
-/* Previous/next shifts are context, not the point - dimmed a little so
-   the current shift still reads as the obvious centerpiece. */
-.shift-block-adjacent { opacity: 0.7; }
-
-/* The current shift is the centerpiece the scheduling team asked for -
-   same accent treatment as the leaderboard's #1 row, just applied to a
-   whole card instead of one list item. */
 .shift-block-current {
+  flex-shrink: 1;
+  min-height: 13rem;
   border: 2px solid var(--color-accent);
   background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
 }
 .shift-block-current h2 { color: var(--color-accent); }
+
+/* Previous/next shifts are context, not the point - dimmed, and where
+   height is taken back from. Previous yields first and furthest (down to
+   just its heading); Next keeps a couple of rows visible. */
+.shift-block-adjacent { opacity: 0.7; flex-shrink: 60; }
+#next-shift-block { min-height: 5.5rem; }
+#previous-shift-block { flex-shrink: 300; min-height: 2.75rem; }
 
 /* The row matching what's actually running on the PLC right now -
    same visual language as the workcenter crew-summary row elsewhere. */
@@ -859,6 +872,16 @@ tr.current-part-row td {
   border-bottom: 2px solid var(--color-accent);
 }
 tr.current-part-row:hover td { background: var(--color-accent-soft); filter: brightness(0.97); }
+
+/* A scheduled part the PLC has finished cutting (End time filled in) -
+   green wash so a glance at the board shows how far through the shift's
+   list the crew has worked. */
+tr.completed-row td {
+  background: var(--done-bg);
+  color: var(--done);
+}
+tr.completed-row td:first-child { box-shadow: inset 3px 0 0 var(--done); }
+tr.completed-row:hover td { background: var(--done-bg); filter: brightness(0.97); }
 
 @media (max-width: 900px) {
   main.board-grid { display: block; padding: 0 1.5rem; }
