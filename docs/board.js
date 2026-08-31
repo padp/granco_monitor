@@ -12,18 +12,11 @@ function fmtHours(value) {
   return value === null || value === undefined || value === "" ? "-" : `${value}h`;
 }
 
+// Start/End are auto-derived from real cut activity - the schedule
+// editor never sets them; they're the first/last cut the PLC logged for
+// that part during the shift.
 function fmtClock(iso) {
   return iso ? new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
-}
-
-// Auto-derived from real cut activity - the schedule editor never sets
-// this; it's filled from the first/last cut the PLC logged for the shift.
-function fmtShiftActual(actual) {
-  if (!actual || !actual.started) return "";
-  if (actual.in_progress) {
-    return `Started ${fmtClock(actual.started)} · running (last cut ${fmtClock(actual.last_cut)})`;
-  }
-  return `Ran ${fmtClock(actual.started)} – ${fmtClock(actual.ended)}`;
 }
 
 async function refreshNotes() {
@@ -48,11 +41,16 @@ function renderShiftTable(tableId, doc, currentPartPrefix) {
     if (currentPartPrefix && row.part_number === currentPartPrefix) {
       tr.classList.add("current-part-row");
     }
+    const start = fmtClock(row.actual_start);
+    // Started but no end yet = the part the PLC is cutting right now.
+    const end = row.actual_start && !row.actual_end ? "cutting…" : fmtClock(row.actual_end);
     tr.innerHTML = `
       <td>${row.part_number || "-"}</td>
       <td>${row.job_number || "-"}</td>
       <td>${row.racks ?? "-"}</td>
       <td>${fmtHours(row.estimated_hours)}</td>
+      <td>${start || "-"}</td>
+      <td>${end || "-"}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -74,10 +72,6 @@ async function refreshBoard() {
     data.next?.date && data.next?.shift
       ? `Next — ${data.next.date} ${data.next.shift}`
       : "Next Shift";
-
-  document.getElementById("previous-shift-actual").textContent = fmtShiftActual(data.previous?.actual);
-  document.getElementById("current-shift-actual").textContent = fmtShiftActual(data.current?.actual);
-  document.getElementById("next-shift-actual").textContent = fmtShiftActual(data.next?.actual);
 
   renderShiftTable("previous-shift-table", data.previous, null);
   renderShiftTable("current-shift-table", data.current, data.current_part_prefix);

@@ -1402,33 +1402,57 @@ def _adjacent_shift(date_str: str, shift_name: str, delta: int) -> tuple:
     return date_str, _SHIFT_RUN_ORDER[idx]
 
 
-def _shift_actual_times(db, date_str: str, shift_name: str, now: datetime) -> dict:
-    """When the saw actually first and last ran during one shift
-    occurrence - first/last cycle timestamp inside the shift's window
-    (any cut, trim/reload included: this is "when did the blade first and
-    last move", not "when did saleable production run"). All None before
-    the shift has produced anything. While the shift window is still
-    open, 'ended' stays None and 'in_progress'/'last_cut' carry the
-    still-running state, so the board can show "running" rather than a
-    last-cut time that reads as if the shift already finished."""
+def _part_windows_for_shift(db, date_str: str, shift_name: str, now: datetime) -> dict:
+    """First and last cut time for each part within one shift occurrence,
+    keyed by the part-number prefix the schedule uses (see
+    _schedule_tracking_hours - the schedule's own part_number is already
+    that bare prefix, e.g. "1102"). Any cut counts, trim/setup included:
+    the first cycle tagged with a part is when the PLC moved onto it and
+    the blade started, which is exactly the "start time" the board wants.
+
+    'ended' is left None for the part still being cut while the shift is
+    in progress. A part run split in two by another part in between is
+    reported as one span (its first cut -> its last cut) - the same
+    coarse part matching the schedule pace tracking already accepts."""
     start, end = _shift_window(date_str, shift_name)
     query_end = min(end, now)
     if start >= query_end:
-        return {"started": None, "ended": None, "last_cut": None, "in_progress": False}
+        return {}
 
-    ts_filter = {"ts": {"$gte": start.isoformat(), "$lt": query_end.isoformat()}}
-    first = db.cycles.find_one(ts_filter, sort=[("ts", 1)], projection={"_id": False, "ts": True})
-    if not first:
-        return {"started": None, "ended": None, "last_cut": None, "in_progress": False}
-    last = db.cycles.find_one(ts_filter, sort=[("ts", -1)], projection={"_id": False, "ts": True})
+    windows = {}
+    latest_prefix = None
+    for cycle in db.cycles.find(
+        {"ts": {"$gte": start.isoformat(), "$lt": query_end.isoformat()}},
+        projection={"_id": False, "ts": True, "part_number": True},
+        sort=[("ts", 1)],
+    ):
+        prefix = _part_prefix(cycle.get("part_number"))
+        ts = cycle.get("ts")
+        if not prefix or not ts:
+            continue
+        window = windows.get(prefix)
+        if window is None:
+            windows[prefix] = {"started": ts, "ended": ts}
+        else:
+            window["ended"] = ts
+        latest_prefix = prefix
 
-    in_progress = now < end
-    return {
-        "started": first["ts"],
-        "ended": None if in_progress else last["ts"],
-        "last_cut": last["ts"],
-        "in_progress": in_progress,
-    }
+    if now < end and latest_prefix in windows:
+        windows[latest_prefix]["ended"] = None
+    return windows
+
+
+def _board_shift(db, date_str: str, shift_name: str, now: datetime) -> dict:
+    """A shift's schedule doc with each row annotated with when that part
+    actually started and finished cutting on the PLC (see
+    _part_windows_for_shift)."""
+    doc = _schedule_doc(date_str, shift_name)
+    windows = _part_windows_for_shift(db, date_str, shift_name, now)
+    for row in doc.get("rows") or []:
+        window = windows.get(row.get("part_number"))
+        row["actual_start"] = window["started"] if window else None
+        row["actual_end"] = window["ended"] if window else None
+    return doc
 
 
 @app.get("/api/schedule/board")
@@ -1444,12 +1468,9 @@ def schedule_board():
     current_part_prefix = _part_prefix(latest_cycle["part_number"]) if latest_cycle else None
 
     return jsonify(
-        previous={**_schedule_doc(prev_date, prev_shift),
-                  "actual": _shift_actual_times(db, prev_date, prev_shift, now)},
-        current={**_schedule_doc(date_str, shift),
-                 "actual": _shift_actual_times(db, date_str, shift, now)},
-        next={**_schedule_doc(next_date, next_shift),
-              "actual": _shift_actual_times(db, next_date, next_shift, now)},
+        previous=_board_shift(db, prev_date, prev_shift, now),
+        current=_board_shift(db, date_str, shift, now),
+        next=_board_shift(db, next_date, next_shift, now),
         current_part_prefix=current_part_prefix,
     )
 

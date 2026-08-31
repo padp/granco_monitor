@@ -818,17 +818,6 @@ main.board-grid {
 
 .shift-block { flex: 0 0 auto; }
 
-/* Auto-filled actual run window (first/last real cut) under a shift's
-   heading on the board - quiet, and collapses entirely when there's no
-   activity yet so an upcoming shift shows nothing rather than an empty
-   label. */
-.shift-actual {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  margin: -0.15rem 0 0.5rem;
-}
-.shift-actual:empty { display: none; }
-
 /* Previous/next shifts are context, not the point - shown small and
    quiet so the current shift reads as the obvious centerpiece. */
 .shift-block-adjacent {
