@@ -390,6 +390,17 @@ tr.workcenter-summary-row td {
 }
 tr.workcenter-summary-row:hover td { background: var(--color-accent-soft); filter: brightness(0.97); }
 
+/* Sub-label inside a summary cell (e.g. the basis for the workcenter
+   row's status-mix percentages) - opts out of that row's bold + italic
+   so it reads as a quiet annotation, not data. */
+.cell-note {
+  font-weight: 400;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.15rem;
+}
+
 /* Pieces Cut row where the PLC/Plex piece counts land near a whole-
    number multiple of each other - the signature of operators loading
    fewer pieces per cut than the recipe called for (see
@@ -806,6 +817,17 @@ main.board-grid {
 .schedule-col { min-height: 0; }
 
 .shift-block { flex: 0 0 auto; }
+
+/* Auto-filled actual run window (first/last real cut) under a shift's
+   heading on the board - quiet, and collapses entirely when there's no
+   activity yet so an upcoming shift shows nothing rather than an empty
+   label. */
+.shift-actual {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: -0.15rem 0 0.5rem;
+}
+.shift-actual:empty { display: none; }
 
 /* Previous/next shifts are context, not the point - shown small and
    quiet so the current shift reads as the obvious centerpiece. */

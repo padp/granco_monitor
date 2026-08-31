@@ -73,8 +73,15 @@ async function refreshShiftSummary() {
   if (ws && ws.total_seconds) {
     const tr = document.createElement("tr");
     tr.className = "workcenter-summary-row";
+    // Time column is elapsed time on shift; the category percentages are
+    // a share of the (usually shorter) WorkcenterLog-logged status time,
+    // shown with that basis as a sub-label rather than reading as a
+    // breakdown of the elapsed time.
+    const loggedNote = ws.logged_seconds
+      ? `<div class="cell-note">status mix of ${fmtHMS(ws.logged_seconds)} logged</div>`
+      : "";
     tr.innerHTML = `
-      <td>Workcenter (all crew)</td>
+      <td>Workcenter (all crew)${loggedNote}</td>
       <td>${fmtHMS(ws.total_seconds)}</td>
       <td>${fmtPct(ws.category_pct, "production")}</td>
       <td>${fmtPct(ws.category_pct, "setup")}</td>

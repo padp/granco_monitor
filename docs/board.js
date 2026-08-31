@@ -12,6 +12,20 @@ function fmtHours(value) {
   return value === null || value === undefined || value === "" ? "-" : `${value}h`;
 }
 
+function fmtClock(iso) {
+  return iso ? new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+}
+
+// Auto-derived from real cut activity - the schedule editor never sets
+// this; it's filled from the first/last cut the PLC logged for the shift.
+function fmtShiftActual(actual) {
+  if (!actual || !actual.started) return "";
+  if (actual.in_progress) {
+    return `Started ${fmtClock(actual.started)} · running (last cut ${fmtClock(actual.last_cut)})`;
+  }
+  return `Ran ${fmtClock(actual.started)} – ${fmtClock(actual.ended)}`;
+}
+
 async function refreshNotes() {
   const res = await fetch(`${API_BASE}/api/notes`);
   const data = await res.json();
@@ -60,6 +74,10 @@ async function refreshBoard() {
     data.next?.date && data.next?.shift
       ? `Next — ${data.next.date} ${data.next.shift}`
       : "Next Shift";
+
+  document.getElementById("previous-shift-actual").textContent = fmtShiftActual(data.previous?.actual);
+  document.getElementById("current-shift-actual").textContent = fmtShiftActual(data.current?.actual);
+  document.getElementById("next-shift-actual").textContent = fmtShiftActual(data.next?.actual);
 
   renderShiftTable("previous-shift-table", data.previous, null);
   renderShiftTable("current-shift-table", data.current, data.current_part_prefix);

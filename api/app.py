@@ -109,23 +109,23 @@ def _shift_window(date_str: str, shift_name: str) -> tuple:
 
 
 def _week_start_for_shift(shift_name: str, now: datetime) -> datetime:
-    """This shift's most recent weekly-reset point - the start of its
-    Monday-labeled occurrence. Reuses _shift_window rather than
-    hardcoding a boundary per shift: for Third Shift, _shift_window
+    """This shift's weekly-reset point - the start of its Monday-labeled
+    occurrence for the current calendar week. Reuses _shift_window rather
+    than hardcoding a boundary per shift: for Third Shift, _shift_window
     already returns the *previous* day as that occurrence's start (its
     Monday-labeled shift actually begins Sunday night), so this needs no
     special-casing to get "Sunday night for Third Shift, Monday morning
     for the other two" - it falls out of the existing shift-window math
     for free.
 
-    Rolls back one more week if this week's occurrence hasn't started
-    yet - e.g. asking at 3 AM Monday, before First Shift's 06:50 start
-    means this week's First Shift hasn't happened, so last week's is
-    still the most recent completed reset point."""
+    Deliberately does NOT roll back to last week when this week's
+    occurrence hasn't started yet (e.g. asked Monday morning about Second
+    Shift, which doesn't start until 14:50): a shift that hasn't run this
+    work week should read as "no data" on the leaderboard, not show last
+    week's numbers sitting next to the shifts that already ran this
+    week - that inconsistency is exactly what the user flagged."""
     monday = (now - timedelta(days=now.weekday())).date()
     start, _ = _shift_window(monday.isoformat(), shift_name)
-    if start > now:
-        start, _ = _shift_window((monday - timedelta(days=7)).isoformat(), shift_name)
     return start
 
 
@@ -402,10 +402,10 @@ def shifts_leaderboard():
     their theoretical_duration_s doesn't cover the real reload time, so
     comparing them would always look artificially bad.
 
-    Whether the shift ran at all recently stays a separate, unblended
-    stat - a different question again, kept apart per the user's
-    earlier choice (see shifts_active_count, still on its own rolling
-    Mon-Fri window, unaffected by this weekly reset)."""
+    Whether the shift ran at all this week stays a separate, unblended
+    stat - a different question again, kept apart per the user's earlier
+    choice (see shifts_active_count, which now resets on this same
+    weekly boundary rather than a rolling window)."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
     week_start = {name: _week_start_for_shift(name, now) for name in SHIFT_NAMES}
@@ -590,59 +590,61 @@ def shifts_production():
 
 @app.get("/api/shifts/active-count")
 def shifts_active_count():
-    """How many of the trailing week's calendar occurrences of each
-    shift actually had real cutting activity - replaces a %-of-time
-    "utilization" stat that turned out to be actively misleading (a
-    shift that only ran once all week could still read as ~50%+
-    utilized) and took three separate bug fixes chasing state_events
-    data-quality problems (dangling ts_end, sparse transitions spanning
-    multiple shifts) to even compute correctly. "1 of 7 shifts ran this
-    week" says what the user actually wants to know far more plainly
-    than any percentage of it could.
+    """How many of THIS work week's occurrences of each shift actually
+    had real cutting activity - replaces a %-of-time "utilization" stat
+    that turned out to be actively misleading (a shift that only ran
+    once all week could still read as ~50%+ utilized) and took three
+    separate bug fixes chasing state_events data-quality problems
+    (dangling ts_end, sparse transitions spanning multiple shifts) to
+    even compute correctly. "1 of 5 shifts ran this week" says what the
+    user actually wants to know far more plainly than any percentage of
+    it could.
+
+    Resets on the same weekly boundary as the leaderboard beside it -
+    Monday morning for First/Second Shift, Sunday night for Third (see
+    _week_start_for_shift). It was previously a rolling trailing-7-day
+    window, which left it showing last week's activity next to a
+    leaderboard that had already reset - the inconsistency the user
+    flagged. A shift that hasn't run yet this week now reads as "0 of 5".
 
     Based on cycles (real, non-trim PLC-detected cuts) directly - the
     most reliable ground truth of "did the saw actually run" available,
-    unlike state_events (see above) or operator_segments (workcenter
-    duplication, see the leaderboard's efficiency fix) - and it sidesteps
-    both of those data-quality problems entirely rather than working
-    around them.
+    unlike state_events or operator_segments (workcenter duplication,
+    see the leaderboard's efficiency fix).
 
-    The plant typically only runs Monday-Friday, so weekend days
-    aren't held against a shift - scheduled_days counts only the
-    weekdays among the trailing week's occurrences (always 5 for a
-    7-day window, by the ordinary calendar property that any 7
-    consecutive days contain exactly 5 weekdays - computed per-occurrence
-    here rather than hardcoded, so it stays correct if the window length
-    or schedule ever changes). Running on a weekend does happen
-    (overtime) - that's tracked separately (overtime_count) rather than
-    folded into active_count, since a shift running every scheduled day
-    AND working a weekend should read differently from one that just
-    hit its normal 5.
+    The plant typically only runs Monday-Friday, so scheduled_days is
+    the 5 weekdays of the current week (counted, not hardcoded, so it
+    stays correct if the schedule changes) and stays 5 all week - the
+    bar fills in as the week progresses. Running on a weekend is
+    overtime, tracked separately (overtime_count) rather than folded
+    into active_count.
 
-    Each occurrence's weekday-ness is judged by its own start date, not
-    the shift_label's date - Third Shift's label is pinned to the date
-    its early-morning half falls on (see _current_date_and_shift), but
-    a Friday-night-into-Saturday-morning Third Shift is a normal
-    Friday shift to the crew, not weekend overtime, and the reverse
-    (Sunday night into Monday morning) really is overtime despite
-    Monday being a normal workday."""
+    Each occurrence's weekday-ness is judged by its shift-label date,
+    not its clock-start: Third Shift's Monday-labeled occurrence starts
+    Sunday night but is a normal Monday shift to the crew (and its
+    Friday-labeled one starts Thursday night) - label date Mon-Fri lines
+    up exactly with the five normal occurrences for all three shifts,
+    and weekend labels (Sat/Sun) are the genuine overtime ones."""
     db = get_db()
     now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    monday = (now - timedelta(days=now.weekday())).date()
 
     scheduled_days = {name: 0 for name in SHIFT_NAMES}
     active_count = {name: 0 for name in SHIFT_NAMES}
     overtime_count = {name: 0 for name in SHIFT_NAMES}
-    for day_offset in range(LEADERBOARD_WINDOW_DAYS):
-        date_str = (now - timedelta(days=day_offset)).date().isoformat()
+    for day_offset in range(7):
+        label_date = monday + timedelta(days=day_offset)
+        is_weekday = label_date.weekday() < 5  # Monday=0 ... Sunday=6
         for name in SHIFT_NAMES:
-            start, end = _shift_window(date_str, name)
-            is_weekday = start.weekday() < 5  # Monday=0 ... Sunday=6
-
             if is_weekday:
                 scheduled_days[name] += 1
 
+            start, end = _shift_window(label_date.isoformat(), name)
+            if start > now:
+                continue  # this occurrence hasn't started yet this week
+
             ran = db.cycles.find_one({
-                "ts": {"$gte": start.isoformat(), "$lt": end.isoformat()},
+                "ts": {"$gte": start.isoformat(), "$lt": min(end, now).isoformat()},
                 "is_trim_cut": {"$ne": 1},
             })
             if not ran:
@@ -663,7 +665,7 @@ def shifts_active_count():
     ]
     shifts.sort(key=lambda s: -s["active_count"])
 
-    return jsonify(shifts=shifts, window_days=LEADERBOARD_WINDOW_DAYS)
+    return jsonify(shifts=shifts, week_start=monday.isoformat())
 
 
 def _latest_clockin_sync_ts(db):
@@ -1170,7 +1172,7 @@ def shift_summary():
         return jsonify(
             shift_label=None,
             operators=[],
-            workcenter_summary={"total_seconds": 0, "category_pct": {}},
+            workcenter_summary={"total_seconds": 0, "logged_seconds": 0, "category_pct": {}},
             production_by_part=[],
             clockin_sessions=[],
         )
@@ -1192,6 +1194,14 @@ def shift_summary():
     # counted once, regardless of how many operators it was tagged
     # with) rather than by employee_name, same technique already used
     # for the leaderboard's efficiency calc to avoid crew-size multiplication.
+    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
+    shift_start, shift_end = (
+        _shift_window(date_str, shift_name)
+        if date_str and shift_name in SHIFT_NAMES
+        else (None, None)
+    )
+
     segments = list(db.operator_segments.find({"shift_label": shift_label}, projection={"_id": False}))
     category_seconds_by_name = {}
     workcenter_category_seconds = {}
@@ -1210,28 +1220,41 @@ def shift_summary():
             seen_log_keys.add(log_key)
             workcenter_category_seconds[category] = workcenter_category_seconds.get(category, 0.0) + duration
 
-    workcenter_total = sum(workcenter_category_seconds.values())
+    # The workcenter row's time column is the crew's elapsed time ON
+    # SHIFT (shift start -> now, or the whole shift once it's over), not
+    # the summed WorkcenterLog status-interval time. That logged time
+    # only spans the stretches Plex actually recorded a status for, so it
+    # runs well behind real clocked time - especially in the first hour
+    # of a shift - and showing it under a "Clocked Time" column next to
+    # the per-operator clock-in durations just looked broken. The
+    # category percentages below stay a share of the *logged* status time
+    # (the only basis on which a status mix means anything); logged_seconds
+    # rides along so the UI can label them as such.
+    logged_seconds = sum(workcenter_category_seconds.values())
+    if shift_start:
+        elapsed_seconds = max((min(now, shift_end) - shift_start).total_seconds(), 0.0)
+    else:
+        elapsed_seconds = logged_seconds
     workcenter_summary = {
-        "total_seconds": workcenter_total,
+        "total_seconds": elapsed_seconds,
+        "logged_seconds": logged_seconds,
         "category_pct": {
-            cat: (seconds / workcenter_total * 100 if workcenter_total else 0.0)
+            cat: (seconds / logged_seconds * 100 if logged_seconds else 0.0)
             for cat, seconds in workcenter_category_seconds.items()
         },
     }
 
-    # Clocked time now comes from clockin_sessions (real Plex clock-in/out
+    # Clocked time comes from clockin_sessions (real Plex clock-in/out
     # tracking, see plex_sync/sync.py) instead of summing operator_segments'
     # duration_s - that WorkcenterLog-activity time is exactly what the
     # user doesn't trust as a stand-in for "actually clocked in" (an
     # operator can be clocked in with zero logged activity, or vice versa
     # if clock-in tracking hadn't started yet - see the fallback below).
-    now = datetime.now(PLANT_TZ).replace(tzinfo=None)
     latest_sync_ts = _latest_clockin_sync_ts(db)
     clocked_seconds_by_name = {}
     clockin_session_rows = []
-    date_str, shift_name = shift_label.split(" - ", 1) if " - " in shift_label else (None, None)
-    if date_str and shift_name in SHIFT_NAMES:
-        start, end = _shift_window(date_str, shift_name)
+    if shift_start:
+        start, end = shift_start, shift_end
         # Matches on OVERLAP with the shift window, not "started during
         # it" - a session that clocked in during a prior shift and is
         # still open (or closed sometime after this shift started) is
@@ -1355,22 +1378,65 @@ def schedule_current():
     return jsonify(_schedule_doc(date, shift))
 
 
+# Shifts in the order they actually run across a day, under the label-date
+# convention: Third Shift is labeled by the date its early-morning half
+# falls on, so Third(D) runs D-1 22:50 -> D 06:50 - i.e. immediately
+# BEFORE First(D), not after Second(D) where a naive First/Second/Third
+# ordering would put it. _current_date_and_shift and _shift_window already
+# follow this convention; adjacency has to as well or the board's
+# previous/next shift is a day off at the Third<->First boundary (which is
+# every morning).
+_SHIFT_RUN_ORDER = ["Third Shift", "First Shift", "Second Shift"]
+
+
 def _adjacent_shift(date_str: str, shift_name: str, delta: int) -> tuple:
-    """Steps +1/-1 through SHIFT_NAMES' fixed daily cycle, rolling the
-    date across the First<->Third boundary. delta must be 1 or -1."""
+    """Steps +1/-1 through the daily Third->First->Second run order,
+    rolling the label date when stepping off either end. delta must be
+    1 or -1."""
     d = date.fromisoformat(date_str)
-    idx = SHIFT_NAMES.index(shift_name) + delta
-    if idx >= len(SHIFT_NAMES):
-        return (d + timedelta(days=1)).isoformat(), SHIFT_NAMES[idx - len(SHIFT_NAMES)]
+    idx = _SHIFT_RUN_ORDER.index(shift_name) + delta
+    if idx >= len(_SHIFT_RUN_ORDER):
+        return (d + timedelta(days=1)).isoformat(), _SHIFT_RUN_ORDER[idx - len(_SHIFT_RUN_ORDER)]
     if idx < 0:
-        return (d - timedelta(days=1)).isoformat(), SHIFT_NAMES[idx + len(SHIFT_NAMES)]
-    return date_str, SHIFT_NAMES[idx]
+        return (d - timedelta(days=1)).isoformat(), _SHIFT_RUN_ORDER[idx + len(_SHIFT_RUN_ORDER)]
+    return date_str, _SHIFT_RUN_ORDER[idx]
+
+
+def _shift_actual_times(db, date_str: str, shift_name: str, now: datetime) -> dict:
+    """When the saw actually first and last ran during one shift
+    occurrence - first/last cycle timestamp inside the shift's window
+    (any cut, trim/reload included: this is "when did the blade first and
+    last move", not "when did saleable production run"). All None before
+    the shift has produced anything. While the shift window is still
+    open, 'ended' stays None and 'in_progress'/'last_cut' carry the
+    still-running state, so the board can show "running" rather than a
+    last-cut time that reads as if the shift already finished."""
+    start, end = _shift_window(date_str, shift_name)
+    query_end = min(end, now)
+    if start >= query_end:
+        return {"started": None, "ended": None, "last_cut": None, "in_progress": False}
+
+    ts_filter = {"ts": {"$gte": start.isoformat(), "$lt": query_end.isoformat()}}
+    first = db.cycles.find_one(ts_filter, sort=[("ts", 1)], projection={"_id": False, "ts": True})
+    if not first:
+        return {"started": None, "ended": None, "last_cut": None, "in_progress": False}
+    last = db.cycles.find_one(ts_filter, sort=[("ts", -1)], projection={"_id": False, "ts": True})
+
+    in_progress = now < end
+    return {
+        "started": first["ts"],
+        "ended": None if in_progress else last["ts"],
+        "last_cut": last["ts"],
+        "in_progress": in_progress,
+    }
 
 
 @app.get("/api/schedule/board")
 def schedule_board():
     db = get_db()
-    date_str, shift = _current_date_and_shift(datetime.now(PLANT_TZ))
+    now_local = datetime.now(PLANT_TZ)
+    now = now_local.replace(tzinfo=None)
+    date_str, shift = _current_date_and_shift(now_local)
     prev_date, prev_shift = _adjacent_shift(date_str, shift, -1)
     next_date, next_shift = _adjacent_shift(date_str, shift, 1)
 
@@ -1378,9 +1444,12 @@ def schedule_board():
     current_part_prefix = _part_prefix(latest_cycle["part_number"]) if latest_cycle else None
 
     return jsonify(
-        previous=_schedule_doc(prev_date, prev_shift),
-        current=_schedule_doc(date_str, shift),
-        next=_schedule_doc(next_date, next_shift),
+        previous={**_schedule_doc(prev_date, prev_shift),
+                  "actual": _shift_actual_times(db, prev_date, prev_shift, now)},
+        current={**_schedule_doc(date_str, shift),
+                 "actual": _shift_actual_times(db, date_str, shift, now)},
+        next={**_schedule_doc(next_date, next_shift),
+              "actual": _shift_actual_times(db, next_date, next_shift, now)},
         current_part_prefix=current_part_prefix,
     )
 
