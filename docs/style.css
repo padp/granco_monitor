@@ -816,37 +816,40 @@ main.board-grid {
 
 .schedule-col { min-height: 0; }
 
-.shift-block { flex: 0 0 auto; }
-
-/* Previous/next shifts are context, not the point - shown small and
-   quiet so the current shift reads as the obvious centerpiece. */
-.shift-block-adjacent {
-  padding: 0.6rem 0.9rem;
-  opacity: 0.75;
+/* Previous / current / next each get an equal third of the column's
+   height and scroll internally if a shift's part list runs long - the
+   board runs unattended on a shop-floor TV, so nothing should need
+   hand-scrolling to be read. */
+.shift-block {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-.shift-block-adjacent h2 { margin-bottom: 0.4rem; }
-.shift-block-adjacent table { font-size: 0.8rem; }
+.shift-block .overflow-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Sized to be read from across the shop floor. */
+.shift-block h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+.shift-block table { font-size: 1.2rem; }
+.shift-block th { font-size: 0.85rem; }
+.shift-block td { padding: 0.5rem 0.6rem; }
+
+/* Previous/next shifts are context, not the point - dimmed a little so
+   the current shift still reads as the obvious centerpiece. */
+.shift-block-adjacent { opacity: 0.7; }
 
 /* The current shift is the centerpiece the scheduling team asked for -
    same accent treatment as the leaderboard's #1 row, just applied to a
    whole card instead of one list item. */
 .shift-block-current {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   border: 2px solid var(--color-accent);
   background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
 }
-.shift-block-current h2 {
-  color: var(--color-accent);
-  font-size: 1rem;
-}
-.shift-block-current .overflow-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
+.shift-block-current h2 { color: var(--color-accent); }
 
 /* The row matching what's actually running on the PLC right now -
    same visual language as the workcenter crew-summary row elsewhere. */
@@ -862,5 +865,6 @@ tr.current-part-row:hover td { background: var(--color-accent-soft); filter: bri
   .board-grid .col { display: block; }
   .board-grid .col > .card { margin-bottom: 1.25rem; }
   .notes-text { overflow-y: visible; }
-  .shift-block-current .overflow-wrap { overflow-y: visible; }
+  .shift-block { flex: 0 0 auto; }
+  .shift-block .overflow-wrap { overflow-y: visible; }
 }
