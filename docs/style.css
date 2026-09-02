@@ -1,3 +1,5 @@
+/* Design tokens - shared core is the source of truth in padp/home
+   docs/styles.css. The saw-specific status colors below are local. */
 :root {
   color-scheme: light dark;
   --color-bg: #eef1f6;
