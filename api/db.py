@@ -53,3 +53,5 @@ def ensure_indexes():
     db.part_sessions.create_index("window_start")
     db.recipe_library.create_index("source_id", unique=True)
     db.recipe_library.create_index("name")
+    db.alert_rules.create_index("created_at")
+    db.alert_rules.create_index("active")

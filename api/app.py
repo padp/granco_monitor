@@ -12,11 +12,14 @@ import secrets
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import UpdateOne
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import alerts
 from db import ensure_indexes, get_db
 
 app = Flask(__name__)
@@ -133,6 +136,11 @@ if os.environ.get("SQL_PASS"):
     # Skipped if SQL_PASS isn't set yet (e.g. at build time) - runs at
     # import time so it also happens under gunicorn, not just `python app.py`.
     ensure_indexes()
+    if not os.environ.get("POLL_DISABLED"):
+        # Same POLL_DISABLED escape hatch picos uses, for a local dev
+        # instance that shouldn't be firing real Teams messages while
+        # someone's just poking at the API by hand.
+        alerts.start_background_alert_poller()
 
 
 def _require_api_key():
@@ -1534,6 +1542,150 @@ def recipes_get():
     )
 
     return jsonify(recipes=recipes, synced_at=synced_at, stale=stale)
+
+
+def _serialize_alert_rule(rule):
+    rule["_id"] = str(rule["_id"])
+    # webhook_url is a bearer secret (anyone holding it can post into a
+    # real Teams channel) - the full value is written to Mongo (alerts.py
+    # needs it to actually send) but never handed back out through the
+    # API, masked or not. Ported from picos' own _serialize_rule.
+    rule["webhook_url_masked"] = alerts.mask_webhook_url(rule.pop("webhook_url", None))
+    for trigger in rule.get("triggers", []):
+        trigger["description"] = alerts.describe_trigger(trigger)
+    return rule
+
+
+@app.get("/api/alerts/tags")
+def alerts_tags():
+    """Everything the trigger builder needs that isn't user-entered:
+    every saw-status field it can be built against (bool, numeric, or
+    string - see alerts.list_available_tags) plus the comparator/bool-mode
+    wording and repeat-mode options, defined once in alerts.py rather
+    than duplicated in the frontend. Left open (no _current_session()
+    check) like every other read in this API - only alert-rule
+    create/update/delete require an account, matching /api/schedule and
+    /api/notes."""
+    return jsonify(
+        tags=alerts.list_available_tags(get_db()),
+        comparators=alerts.comparator_options(),
+        bool_modes=alerts.bool_mode_options(),
+        repeat_modes=list(alerts.REPEAT_MODES),
+        has_default_webhook=bool(alerts.default_webhook_url()),
+        recipient_email_domain=alerts.ALLOWED_RECIPIENT_DOMAIN,
+    )
+
+
+@app.get("/api/alerts")
+def alerts_list():
+    db = get_db()
+    rules = list(db.alert_rules.find({}, sort=[("created_at", -1)]))
+    return jsonify(alerts=[_serialize_alert_rule(r) for r in rules])
+
+
+@app.post("/api/alerts/describe")
+def alerts_describe():
+    """Read-only preview: validates a draft trigger (not yet created,
+    and never persisted here) and returns its human-readable description
+    via alerts.describe_draft_trigger. Exists for a future natural-
+    language alert-setup tool to show someone exactly what it's about to
+    create, using this API's own authoritative wording, before they
+    confirm - see alerts.py's describe_draft_trigger docstring."""
+    payload = request.get_json(force=True, silent=True) or {}
+    description, err = alerts.describe_draft_trigger(payload.get("trigger"))
+    if err:
+        return jsonify(error=err), 400
+    return jsonify(description=description)
+
+
+@app.post("/api/alerts/test-webhook")
+def alerts_test_webhook():
+    """Sends one real message to a Teams webhook URL right away, before
+    it's saved as an alert - lets whoever's setting this up catch a
+    pasted-wrong URL immediately instead of waiting for a real trigger
+    condition to happen. Synchronous (unlike alerts._send_teams_async,
+    used by the live poller) since this is a one-off manual click, not
+    something on the hot path that must never block."""
+    payload = request.get_json(force=True, silent=True) or {}
+    webhook_url = payload.get("webhook_url")
+    err = alerts.validate_webhook_url(webhook_url)
+    if err:
+        return jsonify(error=err), 400
+    webhook_url = webhook_url or alerts.default_webhook_url()
+    recipient_email = payload.get("recipient_email")
+    err = alerts.validate_recipient_email(recipient_email)
+    if err:
+        return jsonify(error=err), 400
+    ok, status, body = alerts.send_teams(
+        webhook_url,
+        "Granco Saw Monitor - Test Alert",
+        "This is a test message from the Alerts page.",
+        recipient_email=recipient_email,
+    )
+    if not ok:
+        return jsonify(error=f"Teams rejected the request (status {status}): {body[:300]}"), 400
+    return jsonify(ok=True)
+
+
+@app.post("/api/alerts")
+def alerts_create():
+    """Creates a new alert against the Teams webhook URL and trigger set
+    the request body describes. Gated on a real account
+    (_current_session()) - unlike picos' equivalent endpoint, which has
+    no auth on any route at all (a deliberate, documented choice specific
+    to that app) - matching this app's own existing pattern of gating
+    real people's writes (schedule, notes) behind accounts while leaving
+    reads open."""
+    session = _current_session()
+    if not session:
+        return jsonify(error="unauthorized"), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    doc, err = alerts.build_rule_doc(payload)
+    if err:
+        return jsonify(error=err), 400
+    db = get_db()
+    result = db.alert_rules.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return jsonify(_serialize_alert_rule(doc)), 201
+
+
+@app.patch("/api/alerts/<rule_id>")
+def alerts_update(rule_id):
+    """Only toggles active (enable/disable the whole rule without
+    deleting it) - editing triggers or the webhook URL goes through
+    delete + re-create instead. Gated on a real account, same as
+    alerts_create."""
+    session = _current_session()
+    if not session:
+        return jsonify(error="unauthorized"), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    if not isinstance(payload.get("active"), bool):
+        return jsonify(error="active must be true/false"), 400
+    db = get_db()
+    try:
+        oid = ObjectId(rule_id)
+    except InvalidId:
+        return jsonify(error="invalid id"), 400
+    result = db.alert_rules.update_one({"_id": oid}, {"$set": {"active": payload["active"]}})
+    if result.matched_count == 0:
+        return jsonify(error="not found"), 404
+    return jsonify(ok=True)
+
+
+@app.delete("/api/alerts/<rule_id>")
+def alerts_delete(rule_id):
+    session = _current_session()
+    if not session:
+        return jsonify(error="unauthorized"), 401
+    db = get_db()
+    try:
+        oid = ObjectId(rule_id)
+    except InvalidId:
+        return jsonify(error="invalid id"), 400
+    result = db.alert_rules.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        return jsonify(error="not found"), 404
+    return jsonify(ok=True)
 
 
 @app.get("/health")

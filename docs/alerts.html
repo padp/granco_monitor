@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Granco Saw Monitor — Alerts</title>
+  <link rel="icon" type="image/png" href="uacj-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">Granco Saw Monitor — Alerts</span>
+    <a class="app-header-subtitle app-header-link" href="index.html">&larr; Back to dashboard</a>
+  </header>
+
+  <main>
+    <section id="auth-card" class="card">
+      <h2 id="auth-title">Log In</h2>
+      <form id="auth-form" class="form-grid">
+        <label>
+          Email
+          <input type="email" id="auth-email" placeholder="you@uwh.uacj-group.com" required>
+        </label>
+        <label>
+          Password
+          <input type="password" id="auth-password" required minlength="8">
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="auth-submit" class="btn btn-primary">Log In</button>
+          <button type="button" id="auth-toggle" class="btn btn-link">Need an account? Create one</button>
+        </div>
+      </form>
+      <div id="auth-error" class="form-error"></div>
+      <p class="form-status">Already logged in on Schedule? This page shares that same login.</p>
+    </section>
+
+    <section id="alerts-card" class="card card-wide hidden">
+      <div class="status-row" style="margin-bottom: 1rem;">
+        <div class="status-details">Logged in as <strong id="current-email">-</strong></div>
+        <button type="button" id="logout-btn" class="btn btn-link">Log out</button>
+      </div>
+
+      <p class="form-status" style="margin-top: 0;">
+        Build a set of conditions on any live saw tag, then create an alert that messages a
+        recipient on Microsoft Teams the moment any of its triggers trip. A recurring alert
+        stays quiet until a trigger clears and trips again; a one-time alert is removed
+        automatically right after it fires once.
+      </p>
+
+      <h3>New Alert</h3>
+      <div id="preset-buttons" class="preset-buttons"></div>
+
+      <div id="trigger-builder" class="trigger-builder">
+        <div id="condition-rows"></div>
+        <div class="trigger-form-row">
+          <label>
+            Hold for at least
+            <span class="duration-input">
+              <input type="number" min="0" id="duration-value" placeholder="0">
+              <select id="duration-unit">
+                <option value="1">sec</option>
+                <option value="60">min</option>
+              </select>
+            </span>
+          </label>
+          <button type="button" id="add-trigger-btn" class="btn btn-secondary">+ Add Trigger</button>
+        </div>
+      </div>
+
+      <ul id="staging-list" class="trigger-list"></ul>
+
+      <div class="trigger-form-row">
+        <label class="trigger-field-label">
+          Recipient email
+          <input type="text" id="recipient-email" placeholder="someone@uwh.uacj-group.com">
+        </label>
+        <button type="button" id="send-test-btn" class="btn btn-secondary">Send Test</button>
+        <span id="test-result" class="test-result"></span>
+      </div>
+
+      <div class="trigger-form-row">
+        <label class="trigger-field-label">
+          Alert name (optional)
+          <input type="text" id="alert-label" placeholder="e.g. Night shift watch">
+        </label>
+        <label>
+          Repeat
+          <select id="repeat-select">
+            <option value="recurring">Recurring</option>
+            <option value="one_time">One-time (removed after it fires)</option>
+          </select>
+        </label>
+        <button type="button" id="create-alert-btn" class="btn btn-primary">Create Alert</button>
+      </div>
+      <p id="create-hint" class="form-status"></p>
+
+      <h3>Existing Alerts</h3>
+      <div id="existing-alerts"></div>
+    </section>
+  </main>
+
+  <script src="alerts.js"></script>
+</body>
+</html>
