@@ -41,58 +41,19 @@
       </div>
 
       <p class="form-status" style="margin-top: 0;">
-        Build a set of conditions on any live saw tag, then create an alert that messages a
-        recipient on Microsoft Teams the moment any of its triggers trip. A recurring alert
-        stays quiet until a trigger clears and trips again; a one-time alert is removed
-        automatically right after it fires once.
+        Each alert here messages a recipient on Microsoft Teams the moment any of its
+        triggers trip. A recurring alert stays quiet until a trigger clears and trips again;
+        a one-time alert is removed automatically right after it fires once.
       </p>
 
-      <h3>New Alert</h3>
-      <div id="preset-buttons" class="preset-buttons"></div>
-
-      <div id="trigger-builder" class="trigger-builder">
-        <div id="condition-rows"></div>
-        <div class="trigger-form-row">
-          <label>
-            Hold for at least
-            <span class="duration-input">
-              <input type="number" min="0" id="duration-value" placeholder="0">
-              <select id="duration-unit">
-                <option value="1">sec</option>
-                <option value="60">min</option>
-              </select>
-            </span>
-          </label>
-          <button type="button" id="add-trigger-btn" class="btn btn-secondary">+ Add Trigger</button>
-        </div>
+      <div class="alert-card" style="border-style: dashed;">
+        <p class="form-status" style="margin: 0;">
+          To create a new alert, use
+          <a href="https://padp.github.io/alert-assistant/" target="_blank" rel="noopener noreferrer">Alert Assistant</a>
+          &mdash; describe what you want in plain English and it builds and confirms the exact
+          trigger for you.
+        </p>
       </div>
-
-      <ul id="staging-list" class="trigger-list"></ul>
-
-      <div class="trigger-form-row">
-        <label class="trigger-field-label">
-          Recipient email
-          <input type="text" id="recipient-email" placeholder="someone@uwh.uacj-group.com">
-        </label>
-        <button type="button" id="send-test-btn" class="btn btn-secondary">Send Test</button>
-        <span id="test-result" class="test-result"></span>
-      </div>
-
-      <div class="trigger-form-row">
-        <label class="trigger-field-label">
-          Alert name (optional)
-          <input type="text" id="alert-label" placeholder="e.g. Night shift watch">
-        </label>
-        <label>
-          Repeat
-          <select id="repeat-select">
-            <option value="recurring">Recurring</option>
-            <option value="one_time">One-time (removed after it fires)</option>
-          </select>
-        </label>
-        <button type="button" id="create-alert-btn" class="btn btn-primary">Create Alert</button>
-      </div>
-      <p id="create-hint" class="form-status"></p>
 
       <h3>Existing Alerts</h3>
       <div id="existing-alerts"></div>
