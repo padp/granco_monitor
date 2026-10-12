@@ -55,6 +55,9 @@ class Detector:
 
         self._recipe_cache = {}
 
+        self._param_baseline = {}
+        self._param_settle_until = None
+
     def set_plc_client(self, plc_client):
         self._plc = plc_client
 
@@ -71,9 +74,38 @@ class Detector:
         # this exact poll (a reload move starting), and _update_state needs
         # that fresh value, not last poll's, to attribute an IDLE
         # transition to "Batch Reload" correctly.
+        self._track_param_changes(ts, snapshot)
         self._maybe_cache_recipe(ts, snapshot)
         self._track_backgauge(ts, snapshot)
         self._update_state(ts, snapshot, reason)
+
+    def _track_param_changes(self, ts, snapshot):
+        """Logs an operator edit to a run parameter (config.PARAM_TAGS) as
+        (ts, param, old, new) - only the value that changed, nothing that
+        still matches the previous poll. Must run before _maybe_cache_recipe
+        updates _prev_part_number, so a part change is seen here: loading a
+        recipe rewrites these values and isn't an operator edit, so the
+        baseline is re-learned silently for PARAM_SETTLE_S afterward (and
+        on the first snapshot after startup, when there's nothing to
+        compare against). Error-only polls carry no params and are skipped."""
+        part_number = snapshot.get("part_number")
+        if not part_number:
+            return
+        if part_number != self._prev_part_number:
+            self._param_settle_until = ts.timestamp() + config.PARAM_SETTLE_S
+            self._param_baseline = {}
+
+        settling = self._param_settle_until is not None and ts.timestamp() < self._param_settle_until
+        for name in config.PARAM_TAGS.values():
+            value = snapshot.get(f"param:{name}")
+            if value is None:
+                continue
+            old = self._param_baseline.get(name)
+            self._param_baseline[name] = value
+            if settling or old is None:
+                continue
+            if abs(value - old) > config.PARAM_CHANGE_EPSILON:
+                self._storage.insert_param_change(ts, part_number, name, old, value)
 
     def _update_state(self, ts, snapshot, reason):
         auto_mode = snapshot.get("auto_mode")

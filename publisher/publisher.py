@@ -18,7 +18,7 @@ import requests
 from . import config
 from .checkpoint import Checkpoint
 
-SYNCED_TABLES = ("cycles", "state_events")
+SYNCED_TABLES = ("cycles", "state_events", "param_changes")
 
 
 def _rows_since(conn, table_name: str, last_id: int, limit: int) -> list:

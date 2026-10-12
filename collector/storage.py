@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS recipes (
     trim_cut_slow_dist REAL,
     updated_ts TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS param_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    part_number TEXT,
+    param TEXT NOT NULL,
+    old_value REAL,
+    new_value REAL
+);
+CREATE INDEX IF NOT EXISTS idx_param_changes_ts ON param_changes(ts);
 """
 
 
@@ -205,6 +215,13 @@ class Storage:
                 details.get("trim_cut_slow_dist"),
                 ts.isoformat(),
             ),
+        )
+        self._conn.commit()
+
+    def insert_param_change(self, ts: datetime, part_number, param: str, old_value, new_value):
+        self._conn.execute(
+            "INSERT INTO param_changes (ts, part_number, param, old_value, new_value) VALUES (?, ?, ?, ?, ?)",
+            (ts.isoformat(), part_number, param, old_value, new_value),
         )
         self._conn.commit()
 

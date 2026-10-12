@@ -38,7 +38,36 @@ RECIPE_TAGS = [
     "CURRENT_RECIPE.ATD",
 ]
 
-ALL_TAGS = STATE_TAGS + RECIPE_TAGS
+# Operator-adjustable run parameters (the saw HMI's current-part C_*_DISP
+# values), read every poll so a mid-run change is caught. Compared against
+# the previous poll by Detector._track_param_changes; only the ones that
+# actually change are stored (param_changes table), never a full copy.
+# Keyed by PLC tag, valued by the name written to the log. C_PT_NUM_* is
+# left out (a part change is already tracked via CURRENT_RECIPE[0]), as is
+# C_CUT_LEN_DISP_PVIEW (a mirror of C_CUT_LEN_DISP).
+PARAM_TAGS = {
+    "C_AUTO_FEED_DISP": "auto_feed",
+    "C_AUTO_TRIM_DISP": "auto_trim",
+    "C_BACKGAUGE_PRESS_DISP": "backgauge_pressure",
+    "C_BAT_HEIGHT_DISP": "batch_height",
+    "C_BAT_WIDTH_DISP": "batch_width",
+    "C_CUT_CYCLE_DISP": "cut_cycle",
+    "C_CUT_LEN_DISP": "cut_length",
+    "C_HORIZ_PRESS_DISP": "horizontal_pressure",
+    "C_PTS_PER_CUT_DISP": "parts_per_cut",
+    "C_QTY_DISP": "order_qty",
+    "C_VERT_PRESS_DISP": "vertical_pressure",
+}
+
+# Loading a new recipe rewrites these values over a poll or two, which is
+# not an operator edit. After a part-number change the baseline is
+# re-learned silently for this long before changes start being logged.
+PARAM_SETTLE_S = 5.0
+
+# Smaller differences than this are float noise, not an edit.
+PARAM_CHANGE_EPSILON = 1e-6
+
+ALL_TAGS = STATE_TAGS + RECIPE_TAGS + list(PARAM_TAGS)
 
 # Read only when CURRENT_RECIPE[0] changes, cached in the recipes table.
 RECIPE_DETAIL_TAGS = [
@@ -73,6 +102,7 @@ TAG_ALIASES = {
     "CURRENT_RECIPE.PCL": "cut_length",
     "CURRENT_RECIPE.PPC": "parts_per_cut",
     "CURRENT_RECIPE.ATD": "auto_trim_distance",
+    **{tag: f"param:{name}" for tag, name in PARAM_TAGS.items()},
 }
 
 # --- Cut/cycle detection tuning ---

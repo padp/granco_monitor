@@ -247,6 +247,7 @@ def ingest():
 
     for table_name in (
         "cycles", "state_events", "operator_segments", "production_events", "clockin_sessions", "recipe_library",
+        "param_changes",
     ):
         rows = body.get(table_name) or []
         if rows:
@@ -1064,6 +1065,27 @@ def _production_by_part(db, shift_label: str) -> list:
 PART_SESSION_LOOKBACK = timedelta(days=3)
 
 
+def _session_param_changes(db, input_part, window_start, window_end) -> dict:
+    """Operator edits to run parameters made mid-session, as
+    {param: [{"ts", "from", "to"}, ...]} in time order - only parameters
+    that actually changed appear, so an unchanged run is {}. The recipe
+    values themselves are already stored elsewhere; this is just the
+    deviations. Matched on the PLC's input part (changes are logged
+    against the part loaded on the saw), so Plex-only sessions get {}."""
+    if not input_part:
+        return {}
+    changes = {}
+    for row in db.param_changes.find(
+        {"part_number": input_part, "ts": {"$gte": window_start, "$lte": window_end}},
+        projection={"_id": False},
+        sort=[("ts", 1)],
+    ):
+        changes.setdefault(row["param"], []).append(
+            {"ts": row["ts"], "from": row["old_value"], "to": row["new_value"]}
+        )
+    return changes
+
+
 def _sync_part_sessions(db):
     """Keeps the persisted part_sessions collection caught up with
     cycles/production_events, so /api/part-sessions can filter/aggregate
@@ -1093,6 +1115,7 @@ def _sync_part_sessions(db):
             {"session_key": session_key},
             {"$set": {
                 **run,
+                "param_changes": _session_param_changes(db, run["input_part"], window_start, window_end),
                 "session_key": session_key,
                 "duration_s": duration_s,
                 "shift_label": f"{date_str} - {shift_name}",
