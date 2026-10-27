@@ -31,6 +31,49 @@ function fmtTimeWindow(startIso, endIso) {
   return `${start} - ${new Date(endIso).toLocaleTimeString()}`;
 }
 
+// Operator edits to run parameters (session.param_changes, shaped
+// {param: [{ts, from, to}]}). Both session tables share these: a "Changes"
+// cell, and an expandable detail row listing each edit. Expanded state is
+// remembered by row key because the shift table is rebuilt every poll.
+const expandedChangeRows = new Set();
+
+function flattenParamChanges(paramChanges) {
+  const rows = [];
+  for (const [param, edits] of Object.entries(paramChanges || {})) {
+    for (const e of edits) rows.push({ param, ...e });
+  }
+  return rows.sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
+function changesCell(edits) {
+  if (!edits.length) return "";
+  return `<span class="changes-toggle" title="Click to show operator parameter edits">&#9998; ${edits.length} edit${edits.length === 1 ? "" : "s"}</span>`;
+}
+
+// Appends the session's row, plus a detail row beneath it when the
+// operator changed anything mid-run. `tr` already holds the session's
+// cells (including a changesCell() as the last one).
+function appendSessionRow(tbody, tr, session, edits, colspan, keyPrefix) {
+  tbody.appendChild(tr);
+  if (!edits.length) return;
+
+  const key = `${keyPrefix}|${session.input_part}|${session.output_part}|${session.window_start}`;
+  const detail = document.createElement("tr");
+  detail.className = "changes-detail-row";
+  detail.hidden = !expandedChangeRows.has(key);
+  detail.innerHTML = `<td colspan="${colspan}"><ul class="changes-list">${edits
+    .map(e => `<li>${new Date(e.ts).toLocaleTimeString()} &mdash; ${e.param.replace(/_/g, " ")}: ${e.from} &rarr; <strong>${e.to}</strong></li>`)
+    .join("")}</ul></td>`;
+
+  tr.classList.add("has-changes-row");
+  tr.addEventListener("click", () => {
+    detail.hidden = !detail.hidden;
+    if (detail.hidden) expandedChangeRows.delete(key);
+    else expandedChangeRows.add(key);
+  });
+  tbody.appendChild(detail);
+}
+
 // null until the user (or the initial load) has picked a specific shift -
 // while null, the API's own "current shift" default is used instead.
 function pickedShiftLabel() {
@@ -127,6 +170,7 @@ async function refreshShiftSummary() {
   prodTbody.innerHTML = "";
   for (const p of data.production_by_part || []) {
     const tr = document.createElement("tr");
+    const edits = flattenParamChanges(p.param_changes);
     if (p.review_flag) tr.classList.add("review-flag-row");
     tr.innerHTML = `
       <td>${fmtTimeWindow(p.window_start, p.window_end)}</td>
@@ -137,8 +181,9 @@ async function refreshShiftSummary() {
       <td>${fmtNum(p.plex_pieces)}</td>
       <td>${fmtNum(p.plex_event_count)}</td>
       <td class="review-cell">${p.review_flag ? `<span title="${p.review_flag}">&#9888;&#65039; review</span>` : ""}</td>
+      <td>${changesCell(edits)}</td>
     `;
-    prodTbody.appendChild(tr);
+    appendSessionRow(prodTbody, tr, p, edits, 9, "shift");
   }
 }
 
@@ -213,6 +258,7 @@ async function searchPartSessions() {
   sessionsTbody.innerHTML = "";
   for (const s of data.sessions || []) {
     const tr = document.createElement("tr");
+    const edits = flattenParamChanges(s.param_changes);
     tr.innerHTML = `
       <td>${fmtDateTimeWindow(s.window_start, s.window_end)}</td>
       <td>${s.input_part ?? "-"}</td>
@@ -221,8 +267,9 @@ async function searchPartSessions() {
       <td>${fmtPph(s.plc_pieces_per_hour)}</td>
       <td>${fmtNum(s.plex_pieces)}</td>
       <td>${fmtPph(s.plex_pieces_per_hour)}</td>
+      <td>${changesCell(edits)}</td>
     `;
-    sessionsTbody.appendChild(tr);
+    appendSessionRow(sessionsTbody, tr, s, edits, 8, "pts");
   }
 }
 

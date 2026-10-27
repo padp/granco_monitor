@@ -1053,6 +1053,7 @@ def _production_by_part(db, shift_label: str) -> list:
     runs = _detect_part_runs(db, start.isoformat(), end.isoformat())
     for run in runs:
         run["review_flag"] = _multiple_mismatch_review(run.get("plc_pieces"), run.get("plex_pieces"))
+        run["param_changes"] = _session_param_changes(db, run.get("input_part"), run["window_start"], run["window_end"])
     return runs
 
 

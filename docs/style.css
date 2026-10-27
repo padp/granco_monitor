@@ -419,6 +419,20 @@ tr.review-flag-row td {
   background: var(--warn-bg);
 }
 tr.review-flag-row:hover td { background: var(--warn-bg); filter: brightness(0.96); }
+/* Operator parameter edits (see flattenParamChanges in shift-details.js).
+   Deliberately not the review row's warn-bg: an edit is information, not
+   necessarily a problem, and a row can carry both. */
+.changes-toggle {
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: underline dotted;
+}
+tr.has-changes-row { cursor: pointer; }
+.changes-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.9em;
+}
 .review-cell {
   color: var(--warn);
   font-weight: 600;
