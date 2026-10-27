@@ -32,3 +32,12 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated BOM export from Plex
+bom_components.csv
+part_to_die.csv
+
+# Reference docs
+reference/*
+/reference
+reference/

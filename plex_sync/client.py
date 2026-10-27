@@ -142,3 +142,46 @@ def search_current_clocked_in(workcenter_key: int):
         },
     )
     return resp.json().get("Data")
+
+
+def search_parts(group_key: str):
+    """Engineering/Part/Search - the active parts in one part group (the
+    Plex Part screen filtered by group). Returns the raw Data object;
+    rows are in Data["Rows"]."""
+    _ensure_session()
+    resp = _post(
+        "https://cloud.plex.com/Engineering/Part/Search",
+        params={
+            "__asid": _secrets["ASID"],
+            "limit": "true",
+            "sourceActionKey": config.SEARCH_PARTS_SOURCE_ACTION_KEY,
+        },
+        json={
+            "ShowImg": True,
+            "GetCustomers": False,
+            "GetAttributes": True,
+            "GetMasters": False,
+            "Active": True,
+            "GroupKey": str(group_key),
+            "PCN": 0,
+            "PUN": 0,
+        },
+    )
+    return resp.json().get("Data")
+
+
+def get_part_components(part_key: str):
+    """VisionPlex data source (screen action 6234) that lists the
+    components of one part - its BOM level, one step down. Rows are in
+    Data["Rows"]; a part with no components returns no rows."""
+    _ensure_session()
+    resp = _post(
+        f"https://cloud.plex.com/api/MetaDataSource/{config.PART_COMPONENTS_DATASOURCE_ID}",
+        params={
+            "__asid": _secrets["ASID"],
+            "limit": "true",
+            "sourceActionKey": config.PART_COMPONENTS_SOURCE_ACTION_KEY,
+        },
+        json=[{"PartKey": str(part_key), "PCN": config.PLEX_PCN}],
+    )
+    return resp.json().get("Data")

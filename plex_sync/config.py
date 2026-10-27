@@ -70,3 +70,11 @@ SYNC_INTERVAL_S = 60
 # this threshold (this copy is just the source-of-truth reference for
 # what "understaffed" means here).
 MIN_STAFF_COUNT = 3
+
+# --- Part / BOM lookups (Engineering/Part/Search + the components data source) ---
+# Endpoint-specific identifiers captured from the Plex UI - not guessable.
+SEARCH_PARTS_SOURCE_ACTION_KEY = "579"
+PART_COMPONENTS_DATASOURCE_ID = "wU9w95wEERN7H5bO-R6i_A"
+PART_COMPONENTS_SOURCE_ACTION_KEY = "6234"
+PLEX_PCN = 270494
+PART_GROUP_KEY = "15376"
